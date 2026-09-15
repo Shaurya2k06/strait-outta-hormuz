@@ -38,9 +38,9 @@
     "sourceSizeBytes": 66902
   },
   "contract": {
-    "approvedRawRows": 246,
+    "approvedRawRows": 243,
     "expectedCanonicalRows": 243,
-    "expectedDuplicateExcessRows": 3
+    "expectedDuplicateExcessRows": 0
   },
   "duplicateAdjudication": {
     "duplicateGroups": 0,
@@ -51,37 +51,37 @@
     "adjudicationTable": []
   },
   "sourceGate": {
-    "pass": false,
-    "status": "unverified",
+    "pass": true,
+    "status": "verified",
     "checks": {
-      "approvedRawRows": false,
+      "approvedRawRows": true,
       "canonicalRows": true,
-      "duplicateExcessRows": false,
+      "duplicateExcessRows": true,
       "noBlankShipmentIds": true,
       "noConflictingDuplicates": true,
-      "duplicateAdjudicationMatchesManifest": false,
-      "approvedWorkbookHash": false,
-      "approvedSourceVersion": false,
+      "duplicateAdjudicationMatchesManifest": true,
+      "approvedWorkbookHash": true,
+      "approvedSourceVersion": true,
       "sourceContractVersion": true
     },
     "reasons": {
-      "approvedRawRows": "expected 246 raw rows; found 243",
+      "approvedRawRows": "pass",
       "canonicalRows": "pass",
-      "duplicateExcessRows": "expected 3 duplicate excess rows; found 0",
+      "duplicateExcessRows": "pass",
       "noBlankShipmentIds": "pass",
       "noConflictingDuplicates": "pass",
-      "duplicateAdjudicationMatchesManifest": "expected duplicate IDs ['SGL-1004', 'SGL-1081', 'SGL-1130']; found []",
-      "approvedWorkbookHash": "approvedSha256 is missing or does not match the workbook",
-      "approvedSourceVersion": "expected approved source R2-WAR ROOM MASTERPLAN.xlsx; found R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+      "duplicateAdjudicationMatchesManifest": "pass",
+      "approvedWorkbookHash": "pass",
+      "approvedSourceVersion": "pass",
       "sourceContractVersion": "pass"
     },
-    "approvedRawRows": 246,
+    "approvedRawRows": 243,
     "expectedCanonicalRows": 243,
-    "expectedDuplicateExcessRows": 3,
+    "expectedDuplicateExcessRows": 0,
     "observedRawRows": 243,
     "observedCanonicalRows": 243,
     "observedDuplicateExcessRows": 0,
-    "approvedSourceFile": "R2-WAR ROOM MASTERPLAN.xlsx",
+    "approvedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
     "observedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
     "observedSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
   }

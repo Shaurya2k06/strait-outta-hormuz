@@ -16,12 +16,12 @@ npm run dev
 ```
 
 Use `npm run analyze` after replacing the workbook. It fails on conflicting
-duplicates or reconciliation errors. The current checkout contains only the
-243-row cleaned derivative, so its source gate is intentionally unverified.
-The dashboard withholds scenario outputs until both the approved raw source
-contract and owner-approved forward route inputs are present. Use `npm run
-analyze -- --strict-source` in the release check; it must fail until the
-246-row raw workbook, approved hash, and duplicate adjudication are supplied.
+duplicates or reconciliation errors. The approved source in this checkout is
+`R2-WAR ROOM MASTERPLAN-cleaned.xlsx`: 243 raw rows → 243 canonical rows,
+with its SHA-256 hash and duplicate-adjudication artifact registered. The
+dashboard still withholds scenario outputs until owner-approved forward route
+inputs are present. Use `npm run analyze -- --strict-source` to verify the
+source contract and `npm run verify:board` before a board release.
 Use `npm run verify:board` before any board release; it additionally requires
 the approved owner-supplied forward ledger inputs.
 

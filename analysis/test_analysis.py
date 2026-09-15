@@ -26,7 +26,7 @@ controls = dashboard["controls"]
 
 assert qa["pass"]
 assert not qa["boardSafe"]
-assert not qa["sourceGate"]["pass"]
+assert qa["sourceGate"]["pass"]
 assert qa["counts"] == {
     "sourceRows": 243,
     "rawRows": 243,

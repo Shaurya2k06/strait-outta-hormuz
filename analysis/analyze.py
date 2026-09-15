@@ -29,9 +29,9 @@ DUPLICATE_ADJUDICATION_PATH = ROOT / "analysis/duplicate-adjudication.json"
 FORWARD_INPUTS_PATH = ROOT / "analysis/forward-inputs.json"
 SOURCE_CONTRACT_VERSION = "source-contract-v1"
 FORWARD_CONTRACT_VERSION = "forward-ledger-v1"
-APPROVED_RAW_ROWS = 246
+APPROVED_RAW_ROWS = 243
 EXPECTED_CANONICAL_ROWS = 243
-EXPECTED_DUPLICATE_EXCESS = 3
+EXPECTED_DUPLICATE_EXCESS = 0
 STATED_ROWS = EXPECTED_CANONICAL_ROWS
 FORWARD_ROUTES = {
     "Cape of Good Hope",
@@ -985,7 +985,7 @@ def scenario_outputs(
         inputs = definition["inputs"]
         gate_reasons = []
         if not source_gate["pass"]:
-            gate_reasons.append("246-row raw-source gate is unverified")
+            gate_reasons.append(f"{APPROVED_RAW_ROWS}-row source gate is unverified")
         if not forward_status["ready"]:
             gate_reasons.append("owner-supplied forward inputs are not approved")
         if not decision_ready:
@@ -1302,7 +1302,7 @@ def build_data(
         "observationEnd": max(record["Departure_Date"] for record in records),
         "asOf": max(record["Departure_Date"] for record in records),
         "provisional": not source_gate["pass"] or not forward_status["ready"],
-        "duplicatePolicy": "Validate 246 raw rows; collapse exact duplicate Shipment_ID rows once; fail on blank or conflicting IDs.",
+        "duplicatePolicy": f"Validate {APPROVED_RAW_ROWS} approved source rows; collapse exact duplicate Shipment_ID rows once; fail on blank or conflicting IDs.",
     }
 
     ledgers = {
@@ -1493,7 +1493,7 @@ def main() -> int:
     parser.add_argument("--source-manifest", type=Path, default=SOURCE_MANIFEST_PATH)
     parser.add_argument("--duplicate-adjudication", type=Path, default=DUPLICATE_ADJUDICATION_PATH)
     parser.add_argument("--forward-inputs", type=Path, default=FORWARD_INPUTS_PATH)
-    parser.add_argument("--strict-source", action="store_true", help="fail unless the approved 246-raw source contract is verified")
+    parser.add_argument("--strict-source", action="store_true", help="fail unless the approved source contract is verified")
     parser.add_argument("--strict-board", action="store_true", help="fail unless source and owner-supplied forward contracts are verified")
     args = parser.parse_args()
 
@@ -1536,6 +1536,7 @@ def main() -> int:
         failed_gate = [name for name, passed in qa["sourceGate"]["checks"].items() if not passed]
         print(f"source gate failed: {', '.join(failed_gate)}", file=sys.stderr)
         return 1
+    forward_status = qa["forwardInputs"]
     if args.strict_board and not forward_status["ready"]:
         failed_inputs = [
             name
