@@ -16,10 +16,11 @@ npm run dev
 ```
 
 Use `npm run analyze` after replacing the workbook. It fails on conflicting
-duplicates or reconciliation errors. The current file has 243 canonical rows;
-the case states 246, so the dashboard remains visibly provisional and does not
-prorate or invent the missing records. Use `npm run analyze -- --strict-source`
-to make the refresh fail until the case-stated 246 canonical rows are present.
+duplicates or reconciliation errors. The current file has the expected 243
+canonical rows. The dashboard remains visibly provisional because scenario
+values are proposal defaults and the workbook is a snapshot. Use `npm run
+analyze -- --strict-source` to fail refreshes that drift from 243 canonical
+rows.
 
 Scenario inputs are owner-editable in the browser and recalculate the displayed
 stress outputs; they are proposal defaults until Operations, Procurement,

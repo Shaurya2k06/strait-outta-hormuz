@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WORKBOOK = ROOT / "R2-WAR ROOM MASTERPLAN-cleaned.xlsx"
 DASHBOARD_PATH = ROOT / "client/src/dashboard-data.json"
 QA_PATH = ROOT / "analysis/qa-report.json"
-STATED_ROWS = 246
+STATED_ROWS = 243
 
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -1034,7 +1034,7 @@ def main() -> int:
     parser.add_argument("--workbook", type=Path, default=DEFAULT_WORKBOOK)
     parser.add_argument("--dashboard", type=Path, default=DASHBOARD_PATH)
     parser.add_argument("--qa", type=Path, default=QA_PATH)
-    parser.add_argument("--strict-source", action="store_true", help="fail unless the workbook has the case-stated 246 rows")
+    parser.add_argument("--strict-source", action="store_true", help="fail unless the workbook has the case-stated 243 rows")
     args = parser.parse_args()
 
     try:
