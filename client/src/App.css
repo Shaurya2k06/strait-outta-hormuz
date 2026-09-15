@@ -130,27 +130,26 @@ td { border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--mo
 
 .exposure-grid { grid-template-columns: minmax(0, 1fr) minmax(0, .94fr); }
 .pareto-panel, .map-panel { min-height: 440px; }
-.pareto-list { border-top: 1px solid var(--line); }
-.pareto-row { display: grid; width: 100%; grid-template-columns: 31px 1fr 73px; gap: 9px; align-items: center; padding: 15px 24px; border: 0; border-bottom: 1px solid var(--line); color: inherit; background: transparent; text-align: left; cursor: pointer; }
-.pareto-row:hover, .pareto-row.selected { background: var(--panel-soft); }
-.rank { color: var(--muted); font: 11px var(--mono); }
-.pareto-main { min-width: 0; }
-.pareto-label { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
-.pareto-label b { overflow: hidden; color: var(--text); font: 700 12px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
-.pareto-label em { flex: 0 0 auto; color: var(--muted); font: 10px var(--mono); font-style: normal; }
-.pareto-value { color: var(--text); font: 12px var(--mono); text-align: right; }
-.pareto-value small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
 .pareto-callout { display: flex; align-items: center; gap: 8px; margin: 20px 24px; color: var(--red); font: 11px/1.5 var(--mono); }
+.pareto-callout b { font-weight: 700; }
+.pareto-legend { display: flex; flex-wrap: wrap; gap: 12px 18px; margin: 10px 24px 0; color: var(--muted); font: 10px var(--mono); }
+.pareto-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.pareto-legend i { display: inline-block; width: 14px; height: 4px; background: var(--text); }
+.pareto-legend .pareto-line-key { height: 2px; background: var(--red); }
+.pareto-legend .pareto-cutoff-key { height: 0; border-top: 1px dashed var(--red); background: transparent; }
 .map-legend, .map-footer { display: flex; justify-content: space-between; gap: 10px; padding: 0 24px; color: var(--muted); font: 10px var(--mono); }
 .map-legend { border-top: 1px solid var(--line); padding-top: 16px; }
 .legend-dot { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--text); }
 .legend-dot.amber { background: var(--red); }
 .pareto-chart, .scatter-chart { width: 100%; padding: 8px 24px 0; border-top: 1px solid var(--line); }
 .scatter-chart { padding-top: 12px; }
-.unovis-chart { width: 100%; --vis-font-family: var(--mono); --vis-axis-font-family: var(--label); --vis-axis-grid-color: var(--line); --vis-axis-tick-color: var(--line-strong); --vis-axis-label-color: var(--muted); --vis-axis-tick-label-color: var(--muted); --vis-axis-label-font-size: 10px; --vis-axis-tick-label-font-size: 10px; --vis-scatter-fill-color: var(--text); --vis-scatter-stroke-color: var(--text); --vis-scatter-point-label-text-color-dark: var(--muted); --vis-scatter-point-label-text-font-family: var(--mono); --vis-scatter-point-label-text-font-size: 10px; --vis-grouped-bar-fill-color: var(--text); --vis-grouped-bar-stroke-color: var(--text); --vis-grouped-bar-hover-stroke-color: var(--red); --vis-tooltip-background-color: var(--text); --vis-tooltip-border-color: var(--text); --vis-tooltip-text-color: var(--color-paper-white); --vis-tooltip-padding: 10px 12px; --vis-tooltip-border-radius: 4px; }
+.unovis-chart { width: 100%; --vis-font-family: var(--mono); --vis-axis-font-family: var(--label); --vis-axis-grid-color: var(--line); --vis-axis-tick-color: var(--line-strong); --vis-axis-label-color: var(--muted); --vis-axis-tick-label-color: var(--muted); --vis-axis-label-font-size: 10px; --vis-axis-tick-label-font-size: 10px; --vis-scatter-fill-color: var(--text); --vis-scatter-stroke-color: var(--text); --vis-scatter-point-label-text-color-dark: var(--muted); --vis-scatter-point-label-text-font-family: var(--mono); --vis-scatter-point-label-text-font-size: 10px; --vis-grouped-bar-fill-color: var(--text); --vis-grouped-bar-stroke-color: var(--text); --vis-grouped-bar-hover-stroke-color: var(--red); --vis-line-stroke-color: var(--red); --vis-plotline-color: var(--red); --vis-plotline-label-color: var(--red); --vis-tooltip-background-color: var(--text); --vis-tooltip-border-color: var(--text); --vis-tooltip-text-color: var(--color-paper-white); --vis-tooltip-padding: 10px 12px; --vis-tooltip-border-radius: 4px; }
 .unovis-tooltip { display: grid; gap: 4px; color: var(--color-paper-white); font: 10px/1.4 var(--mono); }
 .unovis-tooltip strong { font: 700 12px var(--sans); }
 .unovis-tooltip span { display: block; }
+.chart-fallback { display: grid; min-height: 270px; place-items: center; color: var(--muted); font: 11px var(--mono); }
+.chart-focus { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 700 10px var(--label); letter-spacing: .05em; text-transform: uppercase; }
+.chart-focus select { max-width: 150px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 4px; outline: 0; color: var(--text); background: var(--panel-soft); font: 11px var(--sans); }
 .map-footer { padding-bottom: 18px; }
 
 .score-panel { min-height: 370px; }

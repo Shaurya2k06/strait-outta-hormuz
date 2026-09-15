@@ -3,20 +3,118 @@
     "sourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
     "sourceSheet": "Shipment_Data",
     "sourceRows": 243,
+    "rawRows": 243,
+    "canonicalRows": 243,
+    "approvedRawRows": 246,
     "caseStatedRows": 243,
+    "sourceSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed",
+    "sourceGate": {
+      "pass": false,
+      "status": "unverified",
+      "checks": {
+        "approvedRawRows": false,
+        "canonicalRows": true,
+        "duplicateExcessRows": false,
+        "noBlankShipmentIds": true,
+        "noConflictingDuplicates": true,
+        "duplicateAdjudicationMatchesManifest": false,
+        "approvedWorkbookHash": false,
+        "approvedSourceVersion": false,
+        "sourceContractVersion": true
+      },
+      "reasons": {
+        "approvedRawRows": "expected 246 raw rows; found 243",
+        "canonicalRows": "pass",
+        "duplicateExcessRows": "expected 3 duplicate excess rows; found 0",
+        "noBlankShipmentIds": "pass",
+        "noConflictingDuplicates": "pass",
+        "duplicateAdjudicationMatchesManifest": "expected duplicate IDs ['SGL-1004', 'SGL-1081', 'SGL-1130']; found []",
+        "approvedWorkbookHash": "approvedSha256 is missing or does not match the workbook",
+        "approvedSourceVersion": "expected approved source R2-WAR ROOM MASTERPLAN.xlsx; found R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+        "sourceContractVersion": "pass"
+      },
+      "approvedRawRows": 246,
+      "expectedCanonicalRows": 243,
+      "expectedDuplicateExcessRows": 3,
+      "observedRawRows": 243,
+      "observedCanonicalRows": 243,
+      "observedDuplicateExcessRows": 0,
+      "approvedSourceFile": "R2-WAR ROOM MASTERPLAN.xlsx",
+      "observedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+      "observedSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
+    },
     "observationStart": "2026-01-05",
     "observationEnd": "2026-03-22",
     "asOf": "2026-03-22",
-    "provisional": false,
-    "duplicatePolicy": "Collapse exact duplicate Shipment_ID rows once; fail on conflicting fields."
+    "provisional": true,
+    "duplicatePolicy": "Validate 246 raw rows; collapse exact duplicate Shipment_ID rows once; fail on blank or conflicting IDs."
+  },
+  "sourceGate": {
+    "pass": false,
+    "status": "unverified",
+    "checks": {
+      "approvedRawRows": false,
+      "canonicalRows": true,
+      "duplicateExcessRows": false,
+      "noBlankShipmentIds": true,
+      "noConflictingDuplicates": true,
+      "duplicateAdjudicationMatchesManifest": false,
+      "approvedWorkbookHash": false,
+      "approvedSourceVersion": false,
+      "sourceContractVersion": true
+    },
+    "reasons": {
+      "approvedRawRows": "expected 246 raw rows; found 243",
+      "canonicalRows": "pass",
+      "duplicateExcessRows": "expected 3 duplicate excess rows; found 0",
+      "noBlankShipmentIds": "pass",
+      "noConflictingDuplicates": "pass",
+      "duplicateAdjudicationMatchesManifest": "expected duplicate IDs ['SGL-1004', 'SGL-1081', 'SGL-1130']; found []",
+      "approvedWorkbookHash": "approvedSha256 is missing or does not match the workbook",
+      "approvedSourceVersion": "expected approved source R2-WAR ROOM MASTERPLAN.xlsx; found R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+      "sourceContractVersion": "pass"
+    },
+    "approvedRawRows": 246,
+    "expectedCanonicalRows": 243,
+    "expectedDuplicateExcessRows": 3,
+    "observedRawRows": 243,
+    "observedCanonicalRows": 243,
+    "observedDuplicateExcessRows": 0,
+    "approvedSourceFile": "R2-WAR ROOM MASTERPLAN.xlsx",
+    "observedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+    "observedSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
+  },
+  "forwardInputs": {
+    "ready": false,
+    "status": "awaiting owner approval",
+    "approved": false,
+    "complete": false,
+    "versioned": true,
+    "hasSource": true,
+    "hasEffectiveDate": false,
+    "source": "awaiting owner-supplied quotes, route-week capacity, insurance and service bounds",
+    "effectiveDate": null,
+    "requiredFields": [
+      "approved owner-supplied route-week capacity",
+      "quoted incremental freight and fuel",
+      "incremental insurance rate",
+      "expected future penalty and failure cost",
+      "service lower bound",
+      "recoverable surcharge / price term",
+      "route-week capacity or an approved horizon capacity"
+    ]
   },
   "duplicateAdjudication": {
     "duplicateGroups": 0,
     "exactDuplicatesCollapsed": [],
-    "conflicts": []
+    "conflicts": [],
+    "blankShipmentIdRows": [],
+    "duplicateExcessRows": 0,
+    "adjudicationTable": []
   },
   "counts": {
     "sourceRows": 243,
+    "rawRows": 243,
     "canonicalRows": 243,
     "directRows": 51,
     "shockRows": 192,
@@ -48,7 +146,14 @@
     "serviceIntervalsValid": true,
     "weightLatticeComplete": true,
     "frontierComplete": true,
-    "noConflicts": true
+    "noConflicts": true,
+    "noBlankShipmentIds": true,
+    "scenarioLedgerShape": true,
+    "scenarioFlowConserves": true,
+    "scenarioCapacityConserves": true,
+    "scenarioNoReferenceRevenue": true
   },
-  "pass": true
+  "analyticalChecksPass": true,
+  "pass": true,
+  "boardSafe": false
 }

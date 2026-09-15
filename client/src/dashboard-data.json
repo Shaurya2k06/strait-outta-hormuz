@@ -3,16 +3,57 @@
     "sourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
     "sourceSheet": "Shipment_Data",
     "sourceRows": 243,
+    "rawRows": 243,
+    "canonicalRows": 243,
+    "approvedRawRows": 246,
     "caseStatedRows": 243,
+    "sourceSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed",
+    "sourceGate": {
+      "pass": false,
+      "status": "unverified",
+      "checks": {
+        "approvedRawRows": false,
+        "canonicalRows": true,
+        "duplicateExcessRows": false,
+        "noBlankShipmentIds": true,
+        "noConflictingDuplicates": true,
+        "duplicateAdjudicationMatchesManifest": false,
+        "approvedWorkbookHash": false,
+        "approvedSourceVersion": false,
+        "sourceContractVersion": true
+      },
+      "reasons": {
+        "approvedRawRows": "expected 246 raw rows; found 243",
+        "canonicalRows": "pass",
+        "duplicateExcessRows": "expected 3 duplicate excess rows; found 0",
+        "noBlankShipmentIds": "pass",
+        "noConflictingDuplicates": "pass",
+        "duplicateAdjudicationMatchesManifest": "expected duplicate IDs ['SGL-1004', 'SGL-1081', 'SGL-1130']; found []",
+        "approvedWorkbookHash": "approvedSha256 is missing or does not match the workbook",
+        "approvedSourceVersion": "expected approved source R2-WAR ROOM MASTERPLAN.xlsx; found R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+        "sourceContractVersion": "pass"
+      },
+      "approvedRawRows": 246,
+      "expectedCanonicalRows": 243,
+      "expectedDuplicateExcessRows": 3,
+      "observedRawRows": 243,
+      "observedCanonicalRows": 243,
+      "observedDuplicateExcessRows": 0,
+      "approvedSourceFile": "R2-WAR ROOM MASTERPLAN.xlsx",
+      "observedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+      "observedSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
+    },
     "observationStart": "2026-01-05",
     "observationEnd": "2026-03-22",
     "asOf": "2026-03-22",
-    "provisional": false,
-    "duplicatePolicy": "Collapse exact duplicate Shipment_ID rows once; fail on conflicting fields."
+    "provisional": true,
+    "duplicatePolicy": "Validate 246 raw rows; collapse exact duplicate Shipment_ID rows once; fail on blank or conflicting IDs."
   },
   "controls": {
+    "rawRows": 243,
     "canonicalRows": 243,
     "statedRows": 243,
+    "approvedRawRows": 246,
     "directRows": 51,
     "shockRows": 192,
     "deliveredRows": 138,
@@ -29,6 +70,7 @@
     "deliveredAdverseSensitivity": 166067154.15356675,
     "deliveredMargin": -157703390.38999993,
     "deliveredBenchmarkContribution": 8313859.033815309,
+    "deliveredDirectEquivalentCost": 62008764.91618469,
     "favourableOffset": 1228441.0482959903,
     "heldCost": 34315352.09999999,
     "heldPenalty": 26015708.840000007,
@@ -47,6 +89,64 @@
     "deliveredCost": 228026014.3399999,
     "deliveredInsurance": 8108101.990000003,
     "deliveredPenalty": 4497610.75
+  },
+  "ledgers": {
+    "delivered": {
+      "recognizedRevenue": 70322623.95,
+      "actualCost": 228026014.3399999,
+      "signedSensitivity": 166017249.42381522,
+      "directEquivalentCost": 62008764.91618469,
+      "benchmarkContribution": 8313859.033815309,
+      "observedContribution": -157703390.38999993
+    },
+    "held": {
+      "contractedRevenue": 25924279.830000002,
+      "accruedCost": 34315352.09999999,
+      "penalties": 26015708.840000007,
+      "insurance": 4481012.260000002,
+      "tonnes": 3104123.0,
+      "daysStuck": 1234.0
+    }
+  },
+  "forwardModel": {
+    "version": "forward-ledger-v1",
+    "decisionReady": false,
+    "sourceStatus": "unverified",
+    "inputStatus": {
+      "ready": false,
+      "status": "awaiting owner approval",
+      "approved": false,
+      "complete": false,
+      "versioned": true,
+      "hasSource": true,
+      "hasEffectiveDate": false,
+      "source": "awaiting owner-supplied quotes, route-week capacity, insurance and service bounds",
+      "effectiveDate": null,
+      "requiredFields": [
+        "approved owner-supplied route-week capacity",
+        "quoted incremental freight and fuel",
+        "incremental insurance rate",
+        "expected future penalty and failure cost",
+        "service lower bound",
+        "recoverable surcharge / price term",
+        "route-week capacity or an approved horizon capacity"
+      ]
+    },
+    "requiredInputs": [
+      "approved owner-supplied route-week capacity",
+      "quoted incremental freight and fuel",
+      "incremental insurance rate",
+      "expected future penalty and failure cost",
+      "service lower bound",
+      "recoverable surcharge / price term",
+      "route-week capacity or an approved horizon capacity"
+    ],
+    "lockedOutputs": [
+      "scenario contribution",
+      "route allocation",
+      "capacity/utilization",
+      "scenario DIFOT"
+    ]
   },
   "routes": [
     {
@@ -3444,51 +3544,18 @@
         "serviceMultiplier": 1.02,
         "unavailableRoutes": []
       },
+      "decisionReady": false,
       "outputs": {
-        "totalContribution": -28042608.149378218,
-        "deliveredContribution": 572834.2554967701,
-        "heldRevenue": 3240534.9787500002,
-        "unservedTonnes": 388015.375,
-        "difot": 83.52173913043478,
-        "recoveredSurcharge": 116247007.90749672,
-        "optionUtilization": 99.99999999999996,
-        "triggerCrossings": [
-          "DIFOT <90%",
-          "Prospective contribution negative"
-        ],
-        "cellTriggerCrossings": [
-          "Meridian Energy Partners × Crude Oil × Pipeline Bypass: negative contribution",
-          "Zenith Crude Traders × Crude Oil × Pipeline Bypass: negative contribution",
-          "Pacific Rim Petrochem × Refined Petrochemicals × Pipeline Bypass: negative contribution",
-          "Nordholm Refining Group × Refined Petrochemicals × Pipeline Bypass: negative contribution",
-          "Meridian Energy Partners × Crude Oil × Held: open revenue trigger",
-          "Baltic Fuel Alliance × Refined Petrochemicals × Pipeline Bypass: negative contribution"
-        ],
-        "routeAllocation": [
-          {
-            "route": "Cape of Good Hope",
-            "tonnes": 3489320.1999999993,
-            "share": 41.39097496681968
-          },
-          {
-            "route": "Pipeline Bypass",
-            "tonnes": 4939903.4,
-            "share": 58.598066743174634
-          },
-          {
-            "route": "Overland Truck",
-            "tonnes": 693.5999999999999,
-            "share": 0.008227614145868908
-          },
-          {
-            "route": "Air Bridge",
-            "tonnes": 230.2,
-            "share": 0.002730675859831348
-          }
-        ]
+        "locked": true
       },
+      "diagnostics": null,
+      "flow": null,
+      "decisionGate": [
+        "246-row raw-source gate is unverified",
+        "owner-supplied forward inputs are not approved"
+      ],
       "action": "Keep controls until release metrics clear.",
-      "assumptionSource": "Proposal inputs; replace with owner-sourced live quotes, capacity and recovery terms.",
+      "assumptionSource": "No approved forward inputs; scenario outputs withheld.",
       "inputOwner": "Operations / Network Planning · Procurement · Commercial · Finance"
     },
     {
@@ -3505,53 +3572,18 @@
         "serviceMultiplier": 0.96,
         "unavailableRoutes": []
       },
+      "decisionReady": false,
       "outputs": {
-        "totalContribution": -140531219.6818232,
-        "deliveredContribution": -109493955.71157321,
-        "heldRevenue": 21063477.361875005,
-        "unservedTonnes": 2522099.9375,
-        "difot": 78.6086956521739,
-        "recoveredSurcharge": 66426861.6614267,
-        "optionUtilization": 99.99999999999996,
-        "triggerCrossings": [
-          "Held revenue >5% of portfolio",
-          "DIFOT <90%",
-          "Prospective contribution negative",
-          "Unserved tonnes >10% of portfolio"
-        ],
-        "cellTriggerCrossings": [
-          "Meridian Energy Partners × Crude Oil × Pipeline Bypass: negative contribution",
-          "Zenith Crude Traders × Crude Oil × Pipeline Bypass: negative contribution",
-          "Pacific Rim Petrochem × Refined Petrochemicals × Pipeline Bypass: negative contribution",
-          "Meridian Energy Partners × Crude Oil × Cape of Good Hope: negative contribution",
-          "Zenith Crude Traders × Crude Oil × Cape of Good Hope: negative contribution",
-          "Nordholm Refining Group × Refined Petrochemicals × Pipeline Bypass: negative contribution"
-        ],
-        "routeAllocation": [
-          {
-            "route": "Cape of Good Hope",
-            "tonnes": 3489320.1999999993,
-            "share": 41.39097496681968
-          },
-          {
-            "route": "Pipeline Bypass",
-            "tonnes": 4939903.4,
-            "share": 58.598066743174634
-          },
-          {
-            "route": "Overland Truck",
-            "tonnes": 693.5999999999999,
-            "share": 0.008227614145868908
-          },
-          {
-            "route": "Air Bridge",
-            "tonnes": 230.2,
-            "share": 0.002730675859831348
-          }
-        ]
+        "locked": true
       },
+      "diagnostics": null,
+      "flow": null,
+      "decisionGate": [
+        "246-row raw-source gate is unverified",
+        "owner-supplied forward inputs are not approved"
+      ],
       "action": "Extend only dated exceptions that clear the live hurdle.",
-      "assumptionSource": "Proposal inputs; replace with owner-sourced live quotes, capacity and recovery terms.",
+      "assumptionSource": "No approved forward inputs; scenario outputs withheld.",
       "inputOwner": "Operations / Network Planning · Procurement · Commercial · Finance"
     },
     {
@@ -3570,48 +3602,18 @@
           "Pipeline Bypass"
         ]
       },
+      "decisionReady": false,
       "outputs": {
-        "totalContribution": -228477384.46363658,
-        "deliveredContribution": -188762350.4852866,
-        "heldRevenue": 33053456.783250004,
-        "unservedTonnes": 3957756.8249999997,
-        "difot": 67.14492753623188,
-        "recoveredSurcharge": 33213430.83071335,
-        "optionUtilization": 41.401933256825366,
-        "triggerCrossings": [
-          "Held revenue >5% of portfolio",
-          "DIFOT <90%",
-          "Prospective contribution negative",
-          "Unserved tonnes >10% of portfolio"
-        ],
-        "cellTriggerCrossings": [
-          "Meridian Energy Partners × Crude Oil × Pipeline Bypass: negative contribution",
-          "Zenith Crude Traders × Crude Oil × Pipeline Bypass: negative contribution",
-          "Pacific Rim Petrochem × Refined Petrochemicals × Pipeline Bypass: negative contribution",
-          "Meridian Energy Partners × Crude Oil × Cape of Good Hope: negative contribution",
-          "Zenith Crude Traders × Crude Oil × Cape of Good Hope: negative contribution",
-          "Nordholm Refining Group × Refined Petrochemicals × Pipeline Bypass: negative contribution"
-        ],
-        "routeAllocation": [
-          {
-            "route": "Cape of Good Hope",
-            "tonnes": 3489320.1999999993,
-            "share": 99.97353193644913
-          },
-          {
-            "route": "Overland Truck",
-            "tonnes": 693.5999999999999,
-            "share": 0.019872536132144344
-          },
-          {
-            "route": "Air Bridge",
-            "tonnes": 230.2,
-            "share": 0.006595527418713419
-          }
-        ]
+        "locked": true
       },
+      "diagnostics": null,
+      "flow": null,
+      "decisionGate": [
+        "246-row raw-source gate is unverified",
+        "owner-supplied forward inputs are not approved"
+      ],
       "action": "Exercise options; pause unrecovered commitments.",
-      "assumptionSource": "Proposal inputs; replace with owner-sourced live quotes, capacity and recovery terms.",
+      "assumptionSource": "No approved forward inputs; scenario outputs withheld.",
       "inputOwner": "Operations / Network Planning · Procurement · Commercial · Finance"
     }
   ],

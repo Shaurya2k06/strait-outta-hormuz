@@ -1,0 +1,14 @@
+{
+  "contractVersion": "source-contract-v1",
+  "approvedRawSourceFile": "R2-WAR ROOM MASTERPLAN.xlsx",
+  "approvedRawRows": 246,
+  "expectedCanonicalRows": 243,
+  "expectedDuplicateExcessRows": 3,
+  "expectedExactDuplicateShipmentIds": [
+    "SGL-1004",
+    "SGL-1081",
+    "SGL-1130"
+  ],
+  "approvedSha256": null,
+  "status": "awaiting approved raw workbook and registered hash"
+}

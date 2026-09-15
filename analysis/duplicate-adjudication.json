@@ -1,0 +1,88 @@
+{
+  "source": {
+    "sheet": "Shipment_Data",
+    "columns": [
+      "Shipment_ID",
+      "Departure_Date",
+      "Route_Type",
+      "Product_Category",
+      "Cargo_Type",
+      "Customer_Name",
+      "Customer_Region",
+      "Customer_Since",
+      "Cargo_Weight_Tons",
+      "Cargo_Value_USD",
+      "Contracted_Freight_Revenue_USD",
+      "Planned_Transit_Days",
+      "Actual_Transit_Days",
+      "Delay_Days",
+      "Freight_Cost_USD",
+      "Fuel_Cost_USD",
+      "Insurance_Cost_USD",
+      "Penalty_Cost_USD",
+      "Total_Cost_to_Serve_USD",
+      "Revenue_Recognized_USD",
+      "Gross_Margin_USD",
+      "Gross_Margin_Pct",
+      "DIFOT_Met",
+      "Cost_per_Ton_USD",
+      "Revenue_per_Ton_USD",
+      "Route_Margin_Sensitivity_USD",
+      "Customer_Concentration_Risk_Pct",
+      "War_Risk_Insurance_Burden_Pct",
+      "Delay_Cost_Attribution_Pct"
+    ],
+    "sourceRows": 243,
+    "sourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+    "sourceSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed",
+    "sourceSizeBytes": 66902
+  },
+  "contract": {
+    "approvedRawRows": 246,
+    "expectedCanonicalRows": 243,
+    "expectedDuplicateExcessRows": 3
+  },
+  "duplicateAdjudication": {
+    "duplicateGroups": 0,
+    "exactDuplicatesCollapsed": [],
+    "conflicts": [],
+    "blankShipmentIdRows": [],
+    "duplicateExcessRows": 0,
+    "adjudicationTable": []
+  },
+  "sourceGate": {
+    "pass": false,
+    "status": "unverified",
+    "checks": {
+      "approvedRawRows": false,
+      "canonicalRows": true,
+      "duplicateExcessRows": false,
+      "noBlankShipmentIds": true,
+      "noConflictingDuplicates": true,
+      "duplicateAdjudicationMatchesManifest": false,
+      "approvedWorkbookHash": false,
+      "approvedSourceVersion": false,
+      "sourceContractVersion": true
+    },
+    "reasons": {
+      "approvedRawRows": "expected 246 raw rows; found 243",
+      "canonicalRows": "pass",
+      "duplicateExcessRows": "expected 3 duplicate excess rows; found 0",
+      "noBlankShipmentIds": "pass",
+      "noConflictingDuplicates": "pass",
+      "duplicateAdjudicationMatchesManifest": "expected duplicate IDs ['SGL-1004', 'SGL-1081', 'SGL-1130']; found []",
+      "approvedWorkbookHash": "approvedSha256 is missing or does not match the workbook",
+      "approvedSourceVersion": "expected approved source R2-WAR ROOM MASTERPLAN.xlsx; found R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+      "sourceContractVersion": "pass"
+    },
+    "approvedRawRows": 246,
+    "expectedCanonicalRows": 243,
+    "expectedDuplicateExcessRows": 3,
+    "observedRawRows": 243,
+    "observedCanonicalRows": 243,
+    "observedDuplicateExcessRows": 0,
+    "approvedSourceFile": "R2-WAR ROOM MASTERPLAN.xlsx",
+    "observedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+    "observedSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
+  }
+}

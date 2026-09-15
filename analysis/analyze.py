@@ -9,6 +9,7 @@ report, and exits non-zero when a reconciliation check fails.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import statistics
@@ -23,7 +24,63 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WORKBOOK = ROOT / "R2-WAR ROOM MASTERPLAN-cleaned.xlsx"
 DASHBOARD_PATH = ROOT / "client/src/dashboard-data.json"
 QA_PATH = ROOT / "analysis/qa-report.json"
-STATED_ROWS = 243
+SOURCE_MANIFEST_PATH = ROOT / "analysis/source-manifest.json"
+DUPLICATE_ADJUDICATION_PATH = ROOT / "analysis/duplicate-adjudication.json"
+FORWARD_INPUTS_PATH = ROOT / "analysis/forward-inputs.json"
+SOURCE_CONTRACT_VERSION = "source-contract-v1"
+FORWARD_CONTRACT_VERSION = "forward-ledger-v1"
+APPROVED_RAW_ROWS = 246
+EXPECTED_CANONICAL_ROWS = 243
+EXPECTED_DUPLICATE_EXCESS = 3
+STATED_ROWS = EXPECTED_CANONICAL_ROWS
+FORWARD_ROUTES = {
+    "Cape of Good Hope",
+    "Pipeline Bypass",
+    "Overland Truck",
+    "Air Bridge",
+}
+PROPOSAL_ROUTE_INPUTS = {
+    "Cape of Good Hope": {
+        "capacityTonnes": 4_000_000,
+        "costPerTon": 18.0,
+        "insuranceRate": 0.018,
+        "serviceLowerBound": 0.67,
+        "expectedFuturePenaltyPerTon": 0.0,
+        "failureCostPerTon": 1.0,
+        "recoverableSurchargePerTon": 0.0,
+        "cargoTypes": ["Container (TEU)", "Bulk Liquid (Chem Tanker)", "Bulk Liquid (VLCC)"],
+    },
+    "Pipeline Bypass": {
+        "capacityTonnes": 2_000_000,
+        "costPerTon": 11.0,
+        "insuranceRate": 0.012,
+        "serviceLowerBound": 0.82,
+        "expectedFuturePenaltyPerTon": 0.0,
+        "failureCostPerTon": 0.7,
+        "recoverableSurchargePerTon": 0.0,
+        "cargoTypes": ["Bulk Liquid (Chem Tanker)", "Bulk Liquid (VLCC)"],
+    },
+    "Overland Truck": {
+        "capacityTonnes": 850_000,
+        "costPerTon": 95.0,
+        "insuranceRate": 0.01,
+        "serviceLowerBound": 0.78,
+        "expectedFuturePenaltyPerTon": 0.0,
+        "failureCostPerTon": 1.2,
+        "recoverableSurchargePerTon": 0.0,
+        "cargoTypes": ["Container (TEU)"],
+    },
+    "Air Bridge": {
+        "capacityTonnes": 35_000,
+        "costPerTon": 1_250.0,
+        "insuranceRate": 0.008,
+        "serviceLowerBound": 0.9,
+        "expectedFuturePenaltyPerTon": 0.0,
+        "failureCostPerTon": 0.8,
+        "recoverableSurchargePerTon": 0.0,
+        "cargoTypes": ["Container (TEU)"],
+    },
+}
 
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -100,7 +157,6 @@ SCENARIO_DEFINITIONS = [
     },
 ]
 
-
 def column_number(reference: str) -> int:
     letters = "".join(character for character in reference if character.isalpha())
     value = 0
@@ -165,7 +221,15 @@ def parse_workbook(path: Path) -> tuple[list[dict], dict]:
                     record[field] = float(raw)
             parsed.append(record)
 
-    return parsed, {"sheet": "Shipment_Data", "columns": headers, "sourceRows": len(parsed)}
+    source_bytes = path.read_bytes()
+    return parsed, {
+        "sheet": "Shipment_Data",
+        "columns": headers,
+        "sourceRows": len(parsed),
+        "sourceFile": path.name,
+        "sourceSha256": hashlib.sha256(source_bytes).hexdigest(),
+        "sourceSizeBytes": len(source_bytes),
+    }
 
 
 def normalized_record(record: dict) -> tuple:
@@ -177,8 +241,14 @@ def normalized_record(record: dict) -> tuple:
 
 def canonicalize(records: list[dict]) -> tuple[list[dict], dict]:
     by_id: dict[str, list[dict]] = defaultdict(list)
-    for record in records:
-        by_id[record["Shipment_ID"]].append(record)
+    blank_ids = []
+    for row_number, record in enumerate(records, 2):
+        shipment_id = str(record.get("Shipment_ID") or "").strip()
+        if not shipment_id:
+            blank_ids.append(row_number)
+            continue
+        record["Shipment_ID"] = shipment_id
+        by_id[shipment_id].append(record)
 
     canonical = []
     exact_duplicates = []
@@ -198,10 +268,150 @@ def canonicalize(records: list[dict]) -> tuple[list[dict], dict]:
         ]
         conflicts.append({"shipmentId": shipment_id, "rows": len(group), "fields": differing_fields})
 
+    duplicate_excess_rows = sum(max(item["rows"] - 1, 0) for item in exact_duplicates)
+    adjudication_table = [
+        {
+            "shipmentId": item["shipmentId"],
+            "rawRows": item["rows"],
+            "canonicalRows": 1,
+            "excessRows": item["rows"] - 1,
+            "decision": "collapse_exact_duplicate",
+        }
+        for item in exact_duplicates
+    ]
     return canonical, {
         "duplicateGroups": len(exact_duplicates) + len(conflicts),
         "exactDuplicatesCollapsed": exact_duplicates,
         "conflicts": conflicts,
+        "blankShipmentIdRows": blank_ids,
+        "duplicateExcessRows": duplicate_excess_rows,
+        "adjudicationTable": adjudication_table,
+    }
+
+
+def load_json(path: Path) -> dict:
+    with path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return payload
+
+
+def source_gate_status(source_info: dict, duplicate_info: dict, canonical_rows: int, manifest: dict) -> dict:
+    expected_raw_rows = manifest.get("approvedRawRows", APPROVED_RAW_ROWS)
+    expected_canonical_rows = manifest.get("expectedCanonicalRows", EXPECTED_CANONICAL_ROWS)
+    expected_duplicate_excess = manifest.get("expectedDuplicateExcessRows", EXPECTED_DUPLICATE_EXCESS)
+    expected_duplicate_ids = sorted(manifest.get("expectedExactDuplicateShipmentIds", []))
+    actual_duplicate_ids = sorted(
+        item["shipmentId"] for item in duplicate_info["exactDuplicatesCollapsed"]
+    )
+    expected_hash = manifest.get("approvedSha256")
+    checks = {
+        "approvedRawRows": source_info["sourceRows"] == expected_raw_rows,
+        "canonicalRows": canonical_rows == expected_canonical_rows,
+        "duplicateExcessRows": duplicate_info["duplicateExcessRows"] == expected_duplicate_excess,
+        "noBlankShipmentIds": not duplicate_info["blankShipmentIdRows"],
+        "noConflictingDuplicates": not duplicate_info["conflicts"],
+        "duplicateAdjudicationMatchesManifest": actual_duplicate_ids == expected_duplicate_ids,
+        "approvedWorkbookHash": bool(expected_hash) and source_info["sourceSha256"] == expected_hash,
+        "approvedSourceVersion": source_info["sourceFile"] == manifest.get("approvedRawSourceFile"),
+        "sourceContractVersion": manifest.get("contractVersion") == SOURCE_CONTRACT_VERSION,
+    }
+    reasons = {
+        name: (
+            "pass"
+            if passed
+            else {
+                "approvedRawRows": f"expected {expected_raw_rows} raw rows; found {source_info['sourceRows']}",
+                "canonicalRows": f"expected {expected_canonical_rows} canonical rows; found {canonical_rows}",
+                "duplicateExcessRows": (
+                    f"expected {expected_duplicate_excess} duplicate excess rows; "
+                    f"found {duplicate_info['duplicateExcessRows']}"
+                ),
+                "noBlankShipmentIds": "blank Shipment_ID rows require adjudication",
+                "noConflictingDuplicates": "conflicting duplicate Shipment_ID fields require adjudication",
+                "duplicateAdjudicationMatchesManifest": (
+                    f"expected duplicate IDs {expected_duplicate_ids}; found {actual_duplicate_ids}"
+                ),
+                "approvedWorkbookHash": "approvedSha256 is missing or does not match the workbook",
+                "approvedSourceVersion": (
+                    f"expected approved source {manifest.get('approvedRawSourceFile')}; "
+                    f"found {source_info['sourceFile']}"
+                ),
+                "sourceContractVersion": f"expected {SOURCE_CONTRACT_VERSION}",
+            }[name]
+        )
+        for name, passed in checks.items()
+    }
+    return {
+        "pass": all(checks.values()),
+        "status": "verified" if all(checks.values()) else "unverified",
+        "checks": checks,
+        "reasons": reasons,
+        "approvedRawRows": expected_raw_rows,
+        "expectedCanonicalRows": expected_canonical_rows,
+        "expectedDuplicateExcessRows": expected_duplicate_excess,
+        "observedRawRows": source_info["sourceRows"],
+        "observedCanonicalRows": canonical_rows,
+        "observedDuplicateExcessRows": duplicate_info["duplicateExcessRows"],
+        "approvedSourceFile": manifest.get("approvedRawSourceFile"),
+        "observedSourceFile": source_info["sourceFile"],
+        "observedSha256": source_info["sourceSha256"],
+    }
+
+
+def forward_input_status(payload: dict) -> dict:
+    routes = payload.get("routes") if isinstance(payload.get("routes"), dict) else {}
+    required_route_fields = (
+        "capacityTonnes",
+        "costPerTon",
+        "insuranceRate",
+        "serviceLowerBound",
+        "expectedFuturePenaltyPerTon",
+        "failureCostPerTon",
+        "recoverableSurchargePerTon",
+    )
+    def valid_route(route: dict) -> bool:
+        if not isinstance(route, dict) or not all(route.get(field) is not None for field in required_route_fields):
+            return False
+        if not all(isinstance(route[field], (int, float)) and math.isfinite(route[field]) for field in required_route_fields):
+            return False
+        return (
+            route["capacityTonnes"] >= 0
+            and route["costPerTon"] >= 0
+            and 0 <= route["insuranceRate"] <= 1
+            and 0 <= route["serviceLowerBound"] <= 1
+            and route["expectedFuturePenaltyPerTon"] >= 0
+            and route["failureCostPerTon"] >= 0
+            and route["recoverableSurchargePerTon"] >= 0
+            and bool(route.get("cargoTypes"))
+        )
+
+    complete = bool(routes) and set(routes) == FORWARD_ROUTES and all(valid_route(route) for route in routes.values())
+    approved = payload.get("approved") is True
+    versioned = payload.get("contractVersion") == FORWARD_CONTRACT_VERSION
+    has_source = bool(payload.get("source"))
+    has_effective_date = bool(payload.get("effectiveDate"))
+    ready = approved and complete and versioned and has_source and has_effective_date
+    return {
+        "ready": ready,
+        "status": "verified" if ready else "awaiting owner approval",
+        "approved": approved,
+        "complete": complete,
+        "versioned": versioned,
+        "hasSource": has_source,
+        "hasEffectiveDate": has_effective_date,
+        "source": payload.get("source", "missing"),
+        "effectiveDate": payload.get("effectiveDate"),
+        "requiredFields": [
+            "approved owner-supplied route-week capacity",
+            "quoted incremental freight and fuel",
+            "incremental insurance rate",
+            "expected future penalty and failure cost",
+            "service lower bound",
+            "recoverable surcharge / price term",
+            "route-week capacity or an approved horizon capacity",
+        ],
     }
 
 
@@ -592,98 +802,265 @@ def concentration_metrics(records: list[dict], key: str, field: str) -> dict:
     return {"hhi": hhi, "effectiveNumber": 1 / hhi if hhi else None}
 
 
-def scenario_outputs(scenarios: list[dict], controls: dict, route_rows: list[dict], cells: list[dict]) -> list[dict]:
-    delivered_revenue = controls["recognizedRevenue"]
-    delivered_adverse = controls["deliveredAdverseSensitivity"]
-    delivered_base_cost = controls["deliveredCost"] - controls["deliveredInsurance"] - controls["deliveredPenalty"]
-    held_tonnes = controls["heldTonnes"]
-    available_route_tonnes = {row["name"]: row["tonnes"] for row in route_rows if row["kind"] == "delivered"}
+def route_is_feasible(record: dict, route_input: dict) -> bool:
+    return record["Cargo_Type"] in route_input.get("cargoTypes", [])
+
+
+def route_unit_economics(record: dict, route_input: dict, inputs: dict) -> dict:
+    tonnes = max(value(record, "Cargo_Weight_Tons"), 1.0)
+    revenue_per_ton = value(record, "Contracted_Freight_Revenue_USD") / tonnes
+    recoverable_per_ton = max(float(route_input["recoverableSurchargePerTon"]), 0) * inputs["recoveryRate"]
+    freight_per_ton = route_input["costPerTon"] * inputs["costMultiplier"]
+    insurance_per_ton = (
+        value(record, "Cargo_Value_USD")
+        / tonnes
+        * route_input["insuranceRate"]
+        * inputs["insuranceMultiplier"]
+    )
+    future_penalty_per_ton = route_input["expectedFuturePenaltyPerTon"] * inputs["penaltyMultiplier"]
+    service_bound = min(max(route_input["serviceLowerBound"] * inputs["serviceMultiplier"], 0), 1)
+    failure_per_ton = route_input["failureCostPerTon"] * (1 - service_bound)
+    return {
+        "unitContribution": (
+            revenue_per_ton
+            + recoverable_per_ton
+            - freight_per_ton
+            - insurance_per_ton
+            - future_penalty_per_ton
+            - failure_per_ton
+        ),
+        "freight": freight_per_ton,
+        "insurance": insurance_per_ton,
+        "futurePenalty": future_penalty_per_ton,
+        "failureCost": failure_per_ton,
+        "recoverableSurcharge": recoverable_per_ton,
+    }
+
+
+def constrained_forward_ledger(held_records: list[dict], inputs: dict, route_inputs: dict) -> dict:
+    """Allocate the open queue against explicit route inputs and conserve flow."""
+    inflow_multiplier = max(inputs["heldInflowMultiplier"], 0)
+    demand = [(record, 1.0, "opening") for record in held_records]
+    demand.extend((record, inflow_multiplier, "inflow") for record in held_records)
+    opening_tonnes = sum(value(record, "Cargo_Weight_Tons") for record in held_records)
+    opening_revenue = sum(value(record, "Contracted_Freight_Revenue_USD") for record in held_records)
+    inflow_tonnes = opening_tonnes * inflow_multiplier
+    inflow_revenue = opening_revenue * inflow_multiplier
+    queue_tonnes = opening_tonnes + inflow_tonnes
+    queue_revenue = opening_revenue + inflow_revenue
+    clear_target_tonnes = queue_tonnes * min(max(inputs["clearRate"], 0), 1)
+    remaining_target = clear_target_tonnes
+    capacities = {
+        route: max(float(route_input.get("capacityTonnes") or 0), 0)
+        for route, route_input in route_inputs.items()
+    }
+    available_capacity = sum(
+        capacity
+        for route, capacity in capacities.items()
+        if route not in inputs["unavailableRoutes"]
+    )
+    allocations = {
+        route: {
+            "route": route,
+            "allocatedTonnes": 0.0,
+            "capacityTonnes": capacities[route],
+            "clearedShipments": 0.0,
+            "forwardContribution": 0.0,
+            "serviceLowerBound": min(
+                max(float(route_inputs[route]["serviceLowerBound"]) * inputs["serviceMultiplier"], 0),
+                1,
+            ),
+        }
+        for route in route_inputs
+    }
+    cleared_revenue = 0.0
+    cleared_shipments = 0.0
+    forward_contribution = 0.0
+    forward_cost = 0.0
+    recovered_surcharge = 0.0
+    expected_failure_cost = 0.0
+
+    demand.sort(
+        key=lambda item: (
+            -(value(item[0], "Penalty_Cost_USD") / max(value(item[0], "Delay_Days"), 1)),
+            -value(item[0], "Contracted_Freight_Revenue_USD"),
+            item[0]["Shipment_ID"],
+            item[2],
+        )
+    )
+    for record, scale, _source in demand:
+        quantity = value(record, "Cargo_Weight_Tons") * scale
+        if quantity <= 0 or remaining_target <= 0:
+            continue
+        while quantity > 1e-9 and remaining_target > 1e-9:
+            options = [
+                (route, route_input, route_unit_economics(record, route_input, inputs))
+                for route, route_input in route_inputs.items()
+                if route not in inputs["unavailableRoutes"]
+                and capacities.get(route, 0) > 1e-9
+                and route_is_feasible(record, route_input)
+            ]
+            if not options:
+                break
+            route, _route_input, economics = max(options, key=lambda item: item[2]["unitContribution"])
+            amount = min(quantity, remaining_target, capacities[route])
+            share_of_record = amount / max(value(record, "Cargo_Weight_Tons"), 1.0)
+            allocation = allocations[route]
+            allocation["allocatedTonnes"] += amount
+            allocation["clearedShipments"] += share_of_record
+            allocation["forwardContribution"] += amount * economics["unitContribution"]
+            capacities[route] -= amount
+            quantity -= amount
+            remaining_target -= amount
+            cleared_shipments += share_of_record
+            cleared_revenue += value(record, "Contracted_Freight_Revenue_USD") * share_of_record
+            contribution = amount * economics["unitContribution"]
+            forward_contribution += contribution
+            forward_cost += amount * (
+                economics["freight"] + economics["insurance"] + economics["futurePenalty"]
+            )
+            recovered_surcharge += amount * economics["recoverableSurcharge"]
+            expected_failure_cost += amount * economics["failureCost"]
+
+    cleared_tonnes = sum(item["allocatedTonnes"] for item in allocations.values())
+    ending_held_tonnes = queue_tonnes - cleared_tonnes
+    ending_held_revenue = queue_revenue - cleared_revenue
+    for allocation in allocations.values():
+        allocation["remainingCapacityTonnes"] = allocation["capacityTonnes"] - allocation["allocatedTonnes"]
+        allocation["share"] = allocation["allocatedTonnes"] / cleared_tonnes * 100 if cleared_tonnes else 0
+    forward_difot = (
+        sum(item["allocatedTonnes"] * item["serviceLowerBound"] for item in allocations.values())
+        / cleared_tonnes
+        * 100
+        if cleared_tonnes
+        else None
+    )
+    flow = {
+        "beginningHeldTonnes": opening_tonnes,
+        "inflowTonnes": inflow_tonnes,
+        "clearedTonnes": cleared_tonnes,
+        "cancelledTonnes": 0.0,
+        "endingHeldTonnes": ending_held_tonnes,
+        "differenceTonnes": opening_tonnes + inflow_tonnes - cleared_tonnes - ending_held_tonnes,
+    }
+    return {
+        "beginningHeldRevenue": opening_revenue,
+        "inflowRevenue": inflow_revenue,
+        "clearedRevenue": cleared_revenue,
+        "endingHeldRevenue": ending_held_revenue,
+        "beginningHeldTonnes": opening_tonnes,
+        "inflowTonnes": inflow_tonnes,
+        "clearTargetTonnes": clear_target_tonnes,
+        "clearedTonnes": cleared_tonnes,
+        "endingHeldTonnes": ending_held_tonnes,
+        "clearedShipments": cleared_shipments,
+        "endingHeldShipments": len(held_records) * (1 + inflow_multiplier) - cleared_shipments,
+        "unservedTonnes": ending_held_tonnes,
+        "totalContribution": forward_contribution,
+        "forwardContribution": forward_contribution,
+        "forwardCost": forward_cost,
+        "recoveredSurcharge": recovered_surcharge,
+        "expectedFailureCost": expected_failure_cost,
+        "difot": forward_difot,
+        "availableRouteTonnes": available_capacity,
+        "optionUtilization": cleared_tonnes / available_capacity * 100 if available_capacity else None,
+        "referenceRevenueIncluded": 0.0,
+        "flow": flow,
+        "routeAllocation": list(allocations.values()),
+        "capacityRemaining": capacities,
+    }
+
+
+def scenario_outputs(
+    scenarios: list[dict],
+    held_records: list[dict],
+    source_gate: dict,
+    forward_status: dict,
+    forward_payload: dict,
+) -> list[dict]:
+    route_inputs = forward_payload.get("routes", {}) if forward_status["ready"] else {}
+    decision_ready = source_gate["pass"] and forward_status["ready"]
     outputs = []
     for definition in scenarios:
         inputs = definition["inputs"]
-        cost = delivered_base_cost * inputs["costMultiplier"]
-        insurance = controls["deliveredInsurance"] * inputs["insuranceMultiplier"]
-        penalty = controls["deliveredPenalty"] * inputs["penaltyMultiplier"]
-        delivered_cost = cost + insurance + penalty
-        recovered_surcharge = delivered_adverse * inputs["recoveryRate"]
-        delivered_contribution = delivered_revenue + recovered_surcharge - delivered_cost
-        projected_held_revenue = controls["heldRevenue"] * (1 - inputs["clearRate"]) * inputs["heldInflowMultiplier"]
-        projected_held_cost = controls["heldCost"] * inputs["costMultiplier"]
-        held_recovery = projected_held_revenue * inputs["recoveryRate"]
-        total_contribution = delivered_contribution + held_recovery - projected_held_cost
-        unserved_tonnes = held_tonnes * (1 - inputs["clearRate"]) * inputs["heldInflowMultiplier"]
-        difot = min(100, max(0, (controls["postDIFOT"] or 0) * inputs["serviceMultiplier"]))
+        gate_reasons = []
+        if not source_gate["pass"]:
+            gate_reasons.append("246-row raw-source gate is unverified")
+        if not forward_status["ready"]:
+            gate_reasons.append("owner-supplied forward inputs are not approved")
+        if not decision_ready:
+            outputs.append(
+                {
+                    "name": definition["name"],
+                    "tone": definition["tone"],
+                    "detail": definition["detail"],
+                    "inputs": inputs,
+                    "decisionReady": False,
+                    "outputs": {"locked": True},
+                    "diagnostics": None,
+                    "flow": None,
+                    "decisionGate": gate_reasons,
+                    "action": definition["action"],
+                    "assumptionSource": "No approved forward inputs; scenario outputs withheld.",
+                    "inputOwner": "Operations / Network Planning · Procurement · Commercial · Finance",
+                }
+            )
+            continue
 
-        available = [
-            {"route": route, "tonnes": tonnes}
-            for route, tonnes in available_route_tonnes.items()
-            if route not in inputs["unavailableRoutes"]
-        ]
-        available_total = sum(item["tonnes"] for item in available)
-        allocation = [
-            {
-                "route": item["route"],
-                "tonnes": item["tonnes"],
-                "share": item["tonnes"] / available_total * 100 if available_total else 0,
-            }
-            for item in available
-        ]
+        ledger = constrained_forward_ledger(held_records, inputs, route_inputs)
         triggers = []
-        if projected_held_revenue > controls["contractedRevenue"] * 0.05:
-            triggers.append("Held revenue >5% of portfolio")
-        if difot < 90:
-            triggers.append("DIFOT <90%")
-        if total_contribution < 0:
-            triggers.append("Prospective contribution negative")
-        if unserved_tonnes > controls["totalTonnes"] * 0.10:
-            triggers.append("Unserved tonnes >10% of portfolio")
-
-        cell_triggers = []
-        for cell in cells:
-            if cell["kind"] == "held":
-                projected_cell_held = cell["heldRevenue"] * (1 - inputs["clearRate"]) * inputs["heldInflowMultiplier"]
-                if projected_cell_held > controls["contractedRevenue"] * 0.01:
-                    cell_triggers.append(f"{cell['customer']} × {cell['product']} × Held: open revenue trigger")
-                continue
-            cell_base_cost = cell["cost"] - cell["insurance"] - cell["penalty"]
-            cell_cost = cell_base_cost * inputs["costMultiplier"] + cell["insurance"] * inputs["insuranceMultiplier"] + cell["penalty"] * inputs["penaltyMultiplier"]
-            cell_contribution = cell["recognized"] + cell["adverse"] * inputs["recoveryRate"] - cell_cost
-            if cell_contribution < 0:
-                cell_triggers.append(f"{cell['customer']} × {cell['product']} × {cell['route']}: negative contribution")
-        cell_triggers = cell_triggers[:6]
-
+        if ledger["endingHeldRevenue"] > ledger["beginningHeldRevenue"] * 0.05:
+            triggers.append("Ending Held revenue remains open")
+        if ledger["endingHeldTonnes"] > 0:
+            triggers.append("Backlog remains after constrained allocation")
         outputs.append(
             {
                 "name": definition["name"],
                 "tone": definition["tone"],
                 "detail": definition["detail"],
                 "inputs": inputs,
+                "decisionReady": decision_ready,
                 "outputs": {
-                    "totalContribution": total_contribution,
-                    "deliveredContribution": delivered_contribution,
-                    "heldRevenue": projected_held_revenue,
-                    "unservedTonnes": unserved_tonnes,
-                    "difot": difot,
-                    "recoveredSurcharge": recovered_surcharge,
-                    "optionUtilization": available_total / controls["deliveredTonnes"] * 100 if controls["deliveredTonnes"] else 0,
+                    "locked": False,
+                    "totalContribution": ledger["totalContribution"],
+                    "beginningHeldRevenue": ledger["beginningHeldRevenue"],
+                    "inflowRevenue": ledger["inflowRevenue"],
+                    "clearedRevenue": ledger["clearedRevenue"],
+                    "endingHeldRevenue": ledger["endingHeldRevenue"],
+                    "beginningHeldTonnes": ledger["beginningHeldTonnes"],
+                    "inflowTonnes": ledger["inflowTonnes"],
+                    "clearedTonnes": ledger["clearedTonnes"],
+                    "endingHeldTonnes": ledger["endingHeldTonnes"],
+                    "flowBalanced": abs(ledger["flow"]["differenceTonnes"]) < 0.01,
+                    "routeAllocation": ledger["routeAllocation"],
+                    "difot": ledger["difot"],
                     "triggerCrossings": triggers,
-                    "cellTriggerCrossings": cell_triggers,
-                    "routeAllocation": allocation,
                 },
+                "diagnostics": ledger,
+                "flow": ledger["flow"],
+                "decisionGate": gate_reasons,
                 "action": definition["action"],
-                "assumptionSource": "Proposal inputs; replace with owner-sourced live quotes, capacity and recovery terms.",
+                "assumptionSource": forward_payload.get("source", "approved forward inputs"),
                 "inputOwner": "Operations / Network Planning · Procurement · Commercial · Finance",
             }
         )
     return outputs
 
 
-def build_data(records: list[dict], source_info: dict, duplicate_info: dict) -> tuple[dict, dict]:
+def build_data(
+    records: list[dict],
+    source_info: dict,
+    duplicate_info: dict,
+    source_manifest: dict,
+    forward_payload: dict,
+) -> tuple[dict, dict]:
     for record in records:
         record["kind"] = classify(record)
         record["routeLabel"] = ROUTE_LABELS.get(record["Route_Type"], record["Route_Type"])
 
     canonical_rows = len(records)
+    source_gate = source_gate_status(source_info, duplicate_info, canonical_rows, source_manifest)
+    forward_status = forward_input_status(forward_payload)
     direct = [record for record in records if record["kind"] == "reference"]
     shock = [record for record in records if record["kind"] != "reference"]
     delivered = [record for record in records if record["kind"] == "delivered"]
@@ -696,8 +1073,10 @@ def build_data(records: list[dict], source_info: dict, duplicate_info: dict) -> 
     full_revenue = portfolio["contracted"]
 
     controls = {
+        "rawRows": source_info["sourceRows"],
         "canonicalRows": canonical_rows,
         "statedRows": STATED_ROWS,
+        "approvedRawRows": APPROVED_RAW_ROWS,
         "directRows": len(direct),
         "shockRows": len(shock),
         "deliveredRows": len(delivered),
@@ -714,6 +1093,7 @@ def build_data(records: list[dict], source_info: dict, duplicate_info: dict) -> 
         "deliveredAdverseSensitivity": delivered_summary["adverse"],
         "deliveredMargin": delivered_summary["grossMargin"],
         "deliveredBenchmarkContribution": delivered_summary["recognized"] - (delivered_summary["cost"] - delivered_summary["signedSensitivity"]),
+        "deliveredDirectEquivalentCost": delivered_summary["cost"] - delivered_summary["signedSensitivity"],
         "favourableOffset": abs(sum(min(value(record, "Route_Margin_Sensitivity_USD"), 0) for record in shock)),
         "heldCost": held_summary["cost"],
         "heldPenalty": held_summary["penalty"],
@@ -901,22 +1281,61 @@ def build_data(records: list[dict], source_info: dict, duplicate_info: dict) -> 
         )
     held_queue.sort(key=lambda item: (-(item["penaltyPerDay"] or 0), -item["revenue"], item["id"]))
 
-    scenarios = scenario_outputs(SCENARIO_DEFINITIONS, controls, route_rows, cell_rows)
+    scenarios = scenario_outputs(
+        SCENARIO_DEFINITIONS,
+        held,
+        source_gate,
+        forward_status,
+        forward_payload,
+    )
     metadata = {
-        "sourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+        "sourceFile": source_info["sourceFile"],
         "sourceSheet": source_info["sheet"],
-        "sourceRows": source_info["sourceRows"],
+        "sourceRows": canonical_rows,
+        "rawRows": source_info["sourceRows"],
+        "canonicalRows": canonical_rows,
+        "approvedRawRows": APPROVED_RAW_ROWS,
         "caseStatedRows": STATED_ROWS,
+        "sourceSha256": source_info["sourceSha256"],
+        "sourceGate": source_gate,
         "observationStart": min(record["Departure_Date"] for record in records),
         "observationEnd": max(record["Departure_Date"] for record in records),
         "asOf": max(record["Departure_Date"] for record in records),
-        "provisional": source_info["sourceRows"] != STATED_ROWS,
-        "duplicatePolicy": "Collapse exact duplicate Shipment_ID rows once; fail on conflicting fields.",
+        "provisional": not source_gate["pass"] or not forward_status["ready"],
+        "duplicatePolicy": "Validate 246 raw rows; collapse exact duplicate Shipment_ID rows once; fail on blank or conflicting IDs.",
+    }
+
+    ledgers = {
+        "delivered": {
+            "recognizedRevenue": delivered_summary["recognized"],
+            "actualCost": delivered_summary["cost"],
+            "signedSensitivity": delivered_summary["signedSensitivity"],
+            "directEquivalentCost": delivered_summary["cost"] - delivered_summary["signedSensitivity"],
+            "benchmarkContribution": delivered_summary["recognized"] - (delivered_summary["cost"] - delivered_summary["signedSensitivity"]),
+            "observedContribution": delivered_summary["grossMargin"],
+        },
+        "held": {
+            "contractedRevenue": held_summary["contracted"],
+            "accruedCost": held_summary["cost"],
+            "penalties": held_summary["penalty"],
+            "insurance": held_summary["insurance"],
+            "tonnes": held_summary["tonnes"],
+            "daysStuck": held_summary["heldAgeDays"],
+        },
     }
 
     dashboard = {
         "metadata": metadata,
         "controls": controls,
+        "ledgers": ledgers,
+        "forwardModel": {
+            "version": FORWARD_CONTRACT_VERSION,
+            "decisionReady": source_gate["pass"] and forward_status["ready"],
+            "sourceStatus": source_gate["status"],
+            "inputStatus": forward_status,
+            "requiredInputs": forward_status["requiredFields"],
+            "lockedOutputs": ["scenario contribution", "route allocation", "capacity/utilization", "scenario DIFOT"],
+        },
         "routes": route_rows,
         "customers": customer_rows,
         "products": product_rows,
@@ -978,7 +1397,7 @@ def build_data(records: list[dict], source_info: dict, duplicate_info: dict) -> 
 
     checks = {
         "canonicalUniqueIds": len(records) == len({record["Shipment_ID"] for record in records}),
-        "canonicalRows": len(records) == source_info["sourceRows"] - len(duplicate_info["exactDuplicatesCollapsed"]),
+        "canonicalRows": len(records) == source_info["sourceRows"] - duplicate_info["duplicateExcessRows"],
         "portfolioSplit": len(direct) + len(shock) == len(records),
         "shockSplit": len(delivered) + len(held) == len(shock),
         "revenueReconciles": abs(portfolio["contracted"] - portfolio["recognized"] - held_summary["contracted"]) < 0.01,
@@ -997,12 +1416,47 @@ def build_data(records: list[dict], source_info: dict, duplicate_info: dict) -> 
         "weightLatticeComplete": all(item["vectors"] == 50 for item in score_robustness.values()),
         "frontierComplete": len(frontier) == len(product_summaries),
         "noConflicts": not duplicate_info["conflicts"],
+        "noBlankShipmentIds": not duplicate_info["blankShipmentIdRows"],
+        "scenarioLedgerShape": all(
+            (
+                not scenario["decisionReady"]
+                and scenario["outputs"] == {"locked": True}
+                and scenario["diagnostics"] is None
+            )
+            or (
+                scenario["decisionReady"]
+                and "totalContribution" in scenario["outputs"]
+                and "routeAllocation" in scenario["outputs"]
+                and "difot" in scenario["outputs"]
+            )
+            for scenario in scenarios
+        ),
+        "scenarioFlowConserves": all(
+            not scenario["decisionReady"] or scenario["outputs"]["flowBalanced"]
+            for scenario in scenarios
+        ),
+        "scenarioCapacityConserves": all(
+            not scenario["decisionReady"]
+            or all(
+                allocation["allocatedTonnes"] <= allocation["capacityTonnes"] + 0.01
+                for allocation in scenario["diagnostics"]["routeAllocation"]
+            )
+            for scenario in scenarios
+        ),
+        "scenarioNoReferenceRevenue": all(
+            not scenario["decisionReady"]
+            or scenario["diagnostics"]["referenceRevenueIncluded"] == 0
+            for scenario in scenarios
+        ),
     }
     qa = {
         "source": metadata,
+        "sourceGate": source_gate,
+        "forwardInputs": forward_status,
         "duplicateAdjudication": duplicate_info,
         "counts": {
-            "sourceRows": source_info["sourceRows"],
+            "sourceRows": canonical_rows,
+            "rawRows": source_info["sourceRows"],
             "canonicalRows": len(records),
             "directRows": len(direct),
             "shockRows": len(shock),
@@ -1019,7 +1473,9 @@ def build_data(records: list[dict], source_info: dict, duplicate_info: dict) -> 
             "postDeliveredDIFOT": delivered_summary["difot"],
         },
         "checks": checks,
+        "analyticalChecksPass": all(checks.values()),
         "pass": all(checks.values()),
+        "boardSafe": all(checks.values()) and source_gate["pass"] and forward_status["ready"],
     }
     return clean_number(dashboard), clean_number(qa)
 
@@ -1031,18 +1487,39 @@ def write_json(path: Path, payload: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workbook", type=Path, default=DEFAULT_WORKBOOK)
+    parser.add_argument("--workbook", type=Path, help="approved raw workbook; cleaned workbook is used only as a provisional fallback")
     parser.add_argument("--dashboard", type=Path, default=DASHBOARD_PATH)
     parser.add_argument("--qa", type=Path, default=QA_PATH)
-    parser.add_argument("--strict-source", action="store_true", help="fail unless the workbook has the case-stated 243 rows")
+    parser.add_argument("--source-manifest", type=Path, default=SOURCE_MANIFEST_PATH)
+    parser.add_argument("--duplicate-adjudication", type=Path, default=DUPLICATE_ADJUDICATION_PATH)
+    parser.add_argument("--forward-inputs", type=Path, default=FORWARD_INPUTS_PATH)
+    parser.add_argument("--strict-source", action="store_true", help="fail unless the approved 246-raw source contract is verified")
+    parser.add_argument("--strict-board", action="store_true", help="fail unless source and owner-supplied forward contracts are verified")
     args = parser.parse_args()
 
     try:
-        raw_records, source_info = parse_workbook(args.workbook)
+        source_manifest = load_json(args.source_manifest)
+        approved_source = ROOT / source_manifest.get("approvedRawSourceFile", "")
+        workbook = args.workbook or (approved_source if approved_source.exists() else DEFAULT_WORKBOOK)
+        raw_records, source_info = parse_workbook(workbook)
         records, duplicate_info = canonicalize(raw_records)
-        dashboard, qa = build_data(records, source_info, duplicate_info)
+        forward_payload = load_json(args.forward_inputs)
+        dashboard, qa = build_data(records, source_info, duplicate_info, source_manifest, forward_payload)
         write_json(args.dashboard, dashboard)
         write_json(args.qa, qa)
+        write_json(
+            args.duplicate_adjudication,
+            {
+                "source": source_info,
+                "contract": {
+                    "approvedRawRows": source_manifest.get("approvedRawRows", APPROVED_RAW_ROWS),
+                    "expectedCanonicalRows": source_manifest.get("expectedCanonicalRows", EXPECTED_CANONICAL_ROWS),
+                    "expectedDuplicateExcessRows": source_manifest.get("expectedDuplicateExcessRows", EXPECTED_DUPLICATE_EXCESS),
+                },
+                "duplicateAdjudication": duplicate_info,
+                "sourceGate": qa["sourceGate"],
+            },
+        )
     except (KeyError, OSError, ET.ParseError, ValueError, BadZipFile) as error:
         print(f"analysis failed: {error}", file=sys.stderr)
         return 1
@@ -1050,11 +1527,28 @@ def main() -> int:
     failed = [name for name, passed in qa["checks"].items() if not passed]
     if duplicate_info["conflicts"]:
         failed.append("conflicting duplicate Shipment_ID")
+    if duplicate_info["blankShipmentIdRows"]:
+        failed.append("blank Shipment_ID")
     if failed:
         print(f"QA failed: {', '.join(failed)}", file=sys.stderr)
         return 1
-    if args.strict_source and qa["counts"]["canonicalRows"] != STATED_ROWS:
-        print(f"source gate failed: expected {STATED_ROWS} canonical rows, found {qa['counts']['canonicalRows']}", file=sys.stderr)
+    if (args.strict_source or args.strict_board) and not qa["sourceGate"]["pass"]:
+        failed_gate = [name for name, passed in qa["sourceGate"]["checks"].items() if not passed]
+        print(f"source gate failed: {', '.join(failed_gate)}", file=sys.stderr)
+        return 1
+    if args.strict_board and not forward_status["ready"]:
+        failed_inputs = [
+            name
+            for name, passed in {
+                "approved": forward_status["approved"],
+                "complete": forward_status["complete"],
+                "versioned": forward_status["versioned"],
+                "source": forward_status["hasSource"],
+                "effectiveDate": forward_status["hasEffectiveDate"],
+            }.items()
+            if not passed
+        ]
+        print(f"forward input gate failed: {', '.join(failed_inputs)}", file=sys.stderr)
         return 1
     print(
         f"Generated {args.dashboard} and {args.qa}: "
