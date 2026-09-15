@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "analyze": "python3 ../analysis/analyze.py",
+    "prebuild": "python3 ../analysis/analyze.py",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "python3 ../analysis/analyze.py && python3 ../analysis/test_analysis.py",
+    "verify": "npm test && npm run lint && npm run build"
   },
   "dependencies": {
     "react": "^19.2.8",

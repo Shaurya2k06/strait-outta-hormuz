@@ -1,0 +1,54 @@
+{
+  "source": {
+    "sourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
+    "sourceSheet": "Shipment_Data",
+    "sourceRows": 243,
+    "caseStatedRows": 246,
+    "observationStart": "2026-01-05",
+    "observationEnd": "2026-03-22",
+    "asOf": "2026-03-22",
+    "provisional": true,
+    "duplicatePolicy": "Collapse exact duplicate Shipment_ID rows once; fail on conflicting fields."
+  },
+  "duplicateAdjudication": {
+    "duplicateGroups": 0,
+    "exactDuplicatesCollapsed": [],
+    "conflicts": []
+  },
+  "counts": {
+    "sourceRows": 243,
+    "canonicalRows": 243,
+    "directRows": 51,
+    "shockRows": 192,
+    "deliveredRows": 138,
+    "heldRows": 54,
+    "actionCells": 44
+  },
+  "controls": {
+    "contractedRevenue": 113313425.65999997,
+    "recognizedRevenue": 87389145.82999997,
+    "heldRevenue": 25924279.830000002,
+    "shockSignedSensitivity": 177481147.58583516,
+    "shockAdverseSensitivity": 178709588.63413113,
+    "postDeliveredDIFOT": 81.88405797101449
+  },
+  "checks": {
+    "canonicalUniqueIds": true,
+    "canonicalRows": true,
+    "portfolioSplit": true,
+    "shockSplit": true,
+    "revenueReconciles": true,
+    "marginReconciles": true,
+    "deliveredMarginReconciles": true,
+    "sensitivityReconciles": true,
+    "actionCellsAreComplete": true,
+    "heldQueueIsComplete": true,
+    "heldHasNoDeliveredDIFOT": true,
+    "directAdverseExcluded": true,
+    "serviceIntervalsValid": true,
+    "weightLatticeComplete": true,
+    "frontierComplete": true,
+    "noConflicts": true
+  },
+  "pass": true
+}
