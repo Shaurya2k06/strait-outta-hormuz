@@ -250,35 +250,33 @@ function HeldLedgerPanel() {
   )
 }
 
-function CellDetail({ cell }) {
-  if (!cell) return <div className="cell-detail empty">Select a decision cell to inspect its evidence and gates.</div>
-  return (
-    <aside className="cell-detail">
-      <div className="detail-heading"><div><span className="eyebrow">selected decision cell</span><h3>{cell.customer}</h3><p>{cell.product} · {routeLabel(cell.routeOrStatus)}</p></div><StatusPill tone={['approval_required', 'blocked_missing_input'].includes(cell.decisionStatus) ? 'required' : 'accepted'}>{decisionStatusLabel(cell.decisionStatus)}</StatusPill></div>
-      <div className="detail-facts"><div><small>historical contribution</small><b className={cell.historicalContribution < 0 ? 'negative-text' : 'positive'}>{formatMoney(cell.historicalContribution)}</b></div><div><small>positive sensitivity</small><b>{formatMoney(cell.positiveSensitivity)}</b></div><div><small>DIFOT / sample</small><b>{cell.difot == null ? 'n.a.' : `${formatPercent(cell.difot)} · ${cell.difotHits}/${cell.difotDenominator}`}</b></div><div><small>{cell.universe === 'held_open' ? 'Held age / revenue' : 'surcharges'} </small><b>{cell.universe === 'held_open' ? `${formatNumber(cell.heldAgeDays, 1)}d · ${formatMoney(cell.heldRevenue)}` : `${formatMoney(cell.zeroMarginSurcharge)} / ${formatMoney(cell.benchmarkPreservingSurcharge)}`}</b></div></div>
-      <div className="detail-columns"><div><h4>Business problem</h4><div className="chip-list">{cell.businessProblems.map((problem) => <span className="problem-chip" key={problem}>{problemLabel(problem)}</span>)}</div><h4>Recommended posture</h4><div className="chip-list">{cell.recommendedPostures.map((posture) => <span className="posture-chip" key={posture}>{titleCase(posture)}</span>)}</div>{cell.operationalOptions.length > 0 && <><h4>Observed operational option</h4><div className="chip-list"><span className="option-chip">{titleCase(cell.operationalOptions[0])}</span></div></>}</div><div><h4>Approval gates</h4><div className="gate-list">{cell.approvalGateDetails.map((gate) => <div key={gate.name}><span>{gate.name}</span><small>{gate.ownerRole}</small></div>)}</div></div></div>
-      <div className="release-box"><small>owner · {cell.ownerRole}</small><b>Release condition</b><span>{cell.releaseCondition}</span></div>
-    </aside>
-  )
-}
-
 function DecisionExplorer() {
   const [customerFilter, setCustomerFilter] = useState('all')
   const [universeFilter, setUniverseFilter] = useState('all')
-  const [selectedId, setSelectedId] = useState(decisionCells[0]?.id ?? '')
+  const [selectedDecision, setSelectedDecision] = useState(null)
+  const decisionByCell = useMemo(() => new Map(decisionRegister.map((decision) => [decision.cellId, decision])), [])
   const filtered = useMemo(() => decisionCells.filter((cell) => (customerFilter === 'all' || cell.customer === customerFilter) && (universeFilter === 'all' || cell.universe === universeFilter)), [customerFilter, universeFilter])
-  const selected = decisionCells.find((cell) => cell.id === selectedId) ?? filtered[0]
   return (
-    <div className="decision-layout">
-      <article className="panel decision-panel">
-        <div className="panel-heading"><div><span className="eyebrow">{decisionCells.length} observed decision cells</span><h3>Select a customer × product cell.</h3></div><div className="cell-filters"><label>customer<select aria-label="Filter cells by customer" value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)}><option value="all">All customers</option>{customers.map((customer) => <option key={customer.name} value={customer.name}>{customer.name}</option>)}</select></label><label>universe<select aria-label="Filter cells by universe" value={universeFilter} onChange={(event) => setUniverseFilter(event.target.value)}><option value="all">All universes</option><option value="post_blockade_delivered">Delivered</option><option value="held_open">Held</option></select></label></div></div>
-        <div className="cell-table-wrap"><table className="cell-table"><thead><tr><th>customer / product</th><th>route / status</th><th>n</th><th>contribution</th><th>positive sensitivity</th><th>DIFOT / Held</th><th>posture</th></tr></thead><tbody>
-          {filtered.map((cell) => <tr className={selected?.id === cell.id ? 'selected' : ''} key={cell.id} onClick={() => setSelectedId(cell.id)}><td><b>{cell.customer}</b><small>{cell.product}</small></td><td><span className={`universe-label ${cell.universe}`}>{routeLabel(cell.routeOrStatus)}</span></td><td>{cell.sample}</td><td className={cell.historicalContribution < 0 ? 'negative-text' : ''}>{formatMoney(cell.historicalContribution)}</td><td>{formatMoney(cell.positiveSensitivity)}</td><td>{cell.difot == null ? <span className="na-value">{formatNumber(cell.heldAgeDays, 1)}d age</span> : `${formatPercent(cell.difot)} · ${cell.difotHits}/${cell.difotDenominator}`}</td><td><span className="table-posture">{titleCase(cell.recommendedPostures[0])}</span></td></tr>)}
-        </tbody></table></div>
-        <p className="panel-note">Filters only change the displayed subset. Source totals and reconciliations remain generated from all {metadata.sourceRows} accepted records.</p>
-      </article>
-      <CellDetail cell={selected} />
-    </div>
+    <article className="panel decision-panel">
+      <div className="panel-heading"><div><span className="eyebrow">{decisionCells.length} observed decision cells</span><h3>Select a customer × product cell.</h3></div><div className="cell-filters"><label>customer<select aria-label="Filter cells by customer" value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)}><option value="all">All customers</option>{customers.map((customer) => <option key={customer.name} value={customer.name}>{customer.name}</option>)}</select></label><label>universe<select aria-label="Filter cells by universe" value={universeFilter} onChange={(event) => setUniverseFilter(event.target.value)}><option value="all">All universes</option><option value="post_blockade_delivered">Delivered</option><option value="held_open">Held</option></select></label></div></div>
+      <div className="decision-cell-grid">
+        {filtered.map((cell) => {
+          const decision = decisionByCell.get(cell.id)
+          return (
+            <button type="button" className="decision-cell-card" key={cell.id} onClick={() => decision && setSelectedDecision(decision)}>
+              <div className="card-topline"><span className="decision-id">{decision?.decisionId ?? 'CELL'}</span><StatusPill tone={decision?.decisionStatus === 'blocked_missing_input' ? 'required' : 'accepted'}>{decisionStatusLabel(decision?.decisionStatus ?? 'actionable_historical')}</StatusPill></div>
+              <strong className="card-title">{cell.customer}</strong>
+              <span className="card-subtitle">{cell.product} · {routeLabel(cell.routeOrStatus)}</span>
+              <div className="card-metrics"><div><small>sample</small><b>{cell.sample}</b></div><div><small>contribution</small><b className={cell.historicalContribution < 0 ? 'negative-text' : ''}>{formatMoney(cell.historicalContribution)}</b></div><div><small>positive sensitivity</small><b>{formatMoney(cell.positiveSensitivity)}</b></div></div>
+              <div className="decision-card-footer"><span>{cell.difot == null ? `${formatNumber(cell.heldAgeDays, 1)}d Held age` : `${formatPercent(cell.difot)} DIFOT`}</span><span>{titleCase(cell.recommendedPostures[0])}</span></div>
+              <span className="card-action">Open analysis <span aria-hidden="true">↗</span></span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="panel-note">Filters only change the displayed subset. Source totals and reconciliations remain generated from all {metadata.sourceRows} accepted records.</p>
+      {selectedDecision && <DecisionModal decision={selectedDecision} eyebrow="decision cell analysis" onClose={() => setSelectedDecision(null)} />}
+    </article>
   )
 }
 
@@ -305,10 +303,10 @@ function DecisionRegisterPanel() {
   )
 }
 
-function DecisionModal({ decision, onClose }) {
+function DecisionModal({ decision, eyebrow = `board registration · ${decision.decisionId}`, onClose }) {
   const cell = decisionCells.find((item) => item.id === decision.cellId)
   return (
-    <DetailModal eyebrow={`board registration · ${decision.decisionId}`} title={decision.scope.customer} subtitle={`${decision.scope.product} · ${routeLabel(decision.scope.routeOrStatus)}`} onClose={onClose}>
+    <DetailModal eyebrow={eyebrow} title={decision.scope.customer} subtitle={`${decision.scope.product} · ${routeLabel(decision.scope.routeOrStatus)}`} onClose={onClose}>
       <div className="modal-stat-grid"><div><small>positive sensitivity</small><strong>{formatMoney(decision.exposure.positiveSensitivity)}</strong></div><div><small>historical contribution</small><strong className={decision.exposure.historicalContribution < 0 ? 'negative-text' : ''}>{formatMoney(decision.exposure.historicalContribution)}</strong></div><div><small>owner</small><strong>{decision.ownerRole}</strong></div><div><small>horizon</small><strong>{decision.horizon.value}</strong></div></div>
       <div className="modal-columns"><div className="modal-section"><span className="modal-label">business problem</span><div className="chip-list">{decision.businessProblem.map((problem) => <span className="problem-chip" key={problem}>{problemLabel(problem)}</span>)}</div><span className="modal-label">recommended posture</span><div className="chip-list">{decision.posture.map((posture) => <span className="posture-chip" key={posture}>{titleCase(posture)}</span>)}</div><span className="modal-label">activation evidence</span><p className="modal-copy">{decision.activationEvidence.map(problemLabel).join(' · ') || 'Historical review only.'}</p></div><div className="modal-section"><span className="modal-label">approval gates</span><div className="modal-gate-list">{decision.approvalGateDetails.map((gate) => <div key={gate.name}><b>{gate.name}</b><small>{gate.ownerRole} · {gate.requiredFor}</small></div>)}</div></div></div>
       <div className="modal-stat-grid modal-secondary-stats"><div><small>DIFOT / sample</small><strong>{cell?.difot == null ? 'n.a.' : `${formatPercent(cell.difot)} · ${cell.difotHits}/${cell.difotDenominator}`}</strong></div><div><small>Held revenue</small><strong>{formatMoney(decision.exposure.heldRevenue)}</strong></div><div><small>decision status</small><strong>{decisionStatusLabel(decision.decisionStatus)}</strong></div><div><small>evidence</small><strong>Proposal</strong></div></div>
