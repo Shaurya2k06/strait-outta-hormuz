@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import dashboardData from './data'
 import './App.css'
 
@@ -25,6 +25,15 @@ const formatMoney = (value, digits = 1) => {
   return `${sign}$${(Math.abs(Number(value)) / 1000000).toFixed(digits)}M`
 }
 
+const formatUsd = (value) => {
+  if (value == null) return 'n.a.'
+  const amount = Math.abs(Number(value))
+  const sign = Number(value) < 0 ? '−' : ''
+  if (amount >= 1000000) return `${sign}$${(amount / 1000000).toFixed(2)}M`
+  if (amount >= 1000) return `${sign}$${(amount / 1000).toFixed(1)}k`
+  return `${sign}$${amount.toFixed(0)}`
+}
+
 const formatPercent = (value, digits = 1) => (value == null ? 'n.a.' : `${Number(value).toFixed(digits)}%`)
 const formatPerTon = (value) => (value == null ? 'n.a.' : `$${Number(value).toFixed(2)}`)
 const formatNumber = (value, digits = 0) => (value == null ? 'n.a.' : Number(value).toLocaleString('en-US', { maximumFractionDigits: digits }))
@@ -43,6 +52,28 @@ function EvidenceTag({ type }) {
 
 function StatusPill({ children, tone = 'neutral' }) {
   return <span className={`status-pill ${tone}`}><i />{children}</span>
+}
+
+function DetailModal({ eyebrow, title, subtitle, onClose, children }) {
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="detail-modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div><span className="eyebrow">{eyebrow}</span><h3>{title}</h3><p>{subtitle}</p></div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close analysis">×</button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  )
 }
 
 function SectionHeading({ index, title, copy, action }) {
@@ -192,14 +223,29 @@ function RouteEvidencePanel() {
 
 function HeldLedgerPanel() {
   const summary = heldLedger.summary
+  const [selectedShipment, setSelectedShipment] = useState(null)
   return (
     <article className="panel held-panel">
       <div className="panel-heading"><div><span className="eyebrow">held ledger</span><h3>Revenue, cost and age by shipment.</h3></div><StatusPill tone="neutral">{summary.shipments} held shipments</StatusPill></div>
       <div className="held-summary"><div><small>contracted / unrecognized</small><b>{formatMoney(summary.contractedRevenue)}</b></div><div><small>accrued total cost</small><b>{formatMoney(summary.accruedCost)}</b></div><div><small>full-life gap</small><b className="negative-text">{formatMoney(summary.fullLifeGap)}</b></div><div><small>age cumulative / median / p90</small><b>{formatNumber(summary.cumulativeAgeDays)}d / {formatNumber(summary.medianAgeDays, 1)}d / {formatNumber(summary.p90AgeDays, 1)}d</b></div></div>
-      <div className="held-table-wrap"><table className="held-table"><thead><tr><th>shipment / customer</th><th>product</th><th>age</th><th>revenue unlock</th><th>accrued cost</th><th>optimistic ceiling / t</th><th>forward contribution</th></tr></thead><tbody>
-        {heldLedger.rows.map((row) => <tr key={row.shipmentId}><td><b>{row.shipmentId}</b><small>{row.customer}</small></td><td>{row.product}</td><td><span className="age-tag">{formatNumber(row.heldAgeDays, 1)}d</span></td><td className="money-cell">{formatMoney(row.revenueUnlocked, 2)}</td><td className="money-cell">{formatMoney(row.accruedCost, 2)}</td><td>{formatPerTon(row.optimisticCeilingPerTon)}</td><td><span className="na-value">n.a.</span></td></tr>)}
-      </tbody></table></div>
+      <div className="held-card-grid">
+        {heldLedger.rows.map((row) => (
+          <button type="button" className="shipment-card" key={row.shipmentId} onClick={() => setSelectedShipment(row)}>
+            <div className="card-topline"><span className="card-code">{row.shipmentId}</span><span className="age-tag">{formatNumber(row.heldAgeDays, 1)}d</span></div>
+            <strong className="card-title">{row.customer}</strong>
+            <span className="card-subtitle">{row.product} · {routeLabel(row.routeOrStatus)}</span>
+            <div className="card-metrics"><div><small>revenue</small><b>{formatUsd(row.revenueUnlocked)}</b></div><div><small>accrued cost</small><b>{formatUsd(row.accruedCost)}</b></div><div><small>ceiling / t</small><b>{formatPerTon(row.optimisticCeilingPerTon)}</b></div></div>
+            <span className="card-action">Open analysis <span aria-hidden="true">↗</span></span>
+          </button>
+        ))}
+      </div>
       <p className="panel-note">Forward contribution is not calculated for Held rows. The per-shipment ceiling assumes accrued cost is sunk and future penalty/surcharge are zero.</p>
+      {selectedShipment && <DetailModal eyebrow="held shipment analysis" title={selectedShipment.shipmentId} subtitle={`${selectedShipment.customer} · ${selectedShipment.product}`} onClose={() => setSelectedShipment(null)}>
+        <div className="modal-stat-grid"><div><small>route / status</small><strong>{routeLabel(selectedShipment.routeOrStatus)}</strong></div><div><small>cargo</small><strong>{formatNumber(selectedShipment.tonnes, 1)}t</strong></div><div><small>held age</small><strong>{formatNumber(selectedShipment.heldAgeDays, 1)}d</strong></div><div><small>evidence</small><strong>Historical fact</strong></div></div>
+        <div className="modal-section"><span className="modal-label">financial position</span><div className="modal-stat-grid"><div><small>contracted revenue</small><strong>{formatUsd(selectedShipment.contractedRevenue)}</strong></div><div><small>accrued cost</small><strong>{formatUsd(selectedShipment.accruedCost)}</strong></div><div><small>current margin</small><strong className={selectedShipment.currentMargin < 0 ? 'negative-text' : ''}>{formatUsd(selectedShipment.currentMargin)}</strong></div><div><small>full-life gap</small><strong className={selectedShipment.fullLifeGap > 0 ? 'negative-text' : ''}>{formatUsd(selectedShipment.fullLifeGap)}</strong></div></div></div>
+        <div className="modal-section"><span className="modal-label">cost and service signals</span><div className="modal-stat-grid"><div><small>insurance</small><strong>{formatUsd(selectedShipment.insuranceComponent)}</strong></div><div><small>penalty</small><strong>{formatUsd(selectedShipment.penaltyComponent)}</strong></div><div><small>optimistic ceiling</small><strong>{formatUsd(selectedShipment.optimisticIncrementalCostCeiling)}</strong></div><div><small>DIFOT / transit</small><strong>n.a. / n.a.</strong></div></div></div>
+        <div className="release-box"><small>forward contribution</small><b>n.a. for Held rows</b><span>The ledger keeps observed revenue, accrued cost and age separate from any execution outcome.</span></div>
+      </DetailModal>}
     </article>
   )
 }
@@ -237,14 +283,37 @@ function DecisionExplorer() {
 }
 
 function DecisionRegisterPanel() {
+  const [selectedDecision, setSelectedDecision] = useState(null)
   return (
     <article className="panel register-panel">
       <div className="panel-heading"><div><span className="eyebrow">board-facing decision register</span><h3>One posture, owner and gate per cell.</h3></div><EvidenceTag type="PROPOSAL" /></div>
-      <div className="register-list">
-        {decisionRegister.map((decision) => <details className="register-row" key={decision.decisionId}><summary><span className="decision-id">{decision.decisionId}</span><span className="register-scope"><b>{decision.scope.customer}</b><small>{decision.scope.product} · {routeLabel(decision.scope.routeOrStatus)}</small></span><span className="register-problem">{decision.businessProblem.map((problem) => <em key={problem}>{problemLabel(problem)}</em>)}</span><span className="register-owner">{decision.ownerRole}</span><span className="chevron">+</span></summary><div className="register-detail"><div><small>posture</small><div className="chip-list">{decision.posture.map((posture) => <span className="posture-chip" key={posture}>{titleCase(posture)}</span>)}</div></div><div><small>activation evidence</small><p>{decision.activationEvidence.map(problemLabel).join(' · ') || 'Historical review only.'}</p></div><div><small>approval gates</small><p>{decision.approvalGates.length ? decision.approvalGates.join(' · ') : 'None for this historical review.'}</p></div><div><small>release condition</small><p>{decision.releaseCondition}</p></div></div></details>)}
+      <div className="register-grid">
+        {decisionRegister.map((decision) => (
+          <button type="button" className="register-card" key={decision.decisionId} onClick={() => setSelectedDecision(decision)}>
+            <div className="card-topline"><span className="decision-id">{decision.decisionId}</span><StatusPill tone={decision.decisionStatus === 'blocked_missing_input' ? 'required' : 'accepted'}>{decisionStatusLabel(decision.decisionStatus)}</StatusPill></div>
+            <strong className="card-title">{decision.scope.customer}</strong>
+            <span className="card-subtitle">{decision.scope.product} · {routeLabel(decision.scope.routeOrStatus)}</span>
+            <div className="card-metrics"><div><small>positive sensitivity</small><b>{formatMoney(decision.exposure.positiveSensitivity)}</b></div><div><small>owner</small><b>{decision.ownerRole}</b></div><div><small>gates</small><b>{decision.approvalGates.length}</b></div></div>
+            <div className="card-chip-row">{decision.businessProblem.slice(0, 2).map((problem) => <span className="problem-chip" key={problem}>{problemLabel(problem)}</span>)}{decision.businessProblem.length > 2 && <span className="more-chip">+{decision.businessProblem.length - 2}</span>}</div>
+            <span className="card-action">Open registration <span aria-hidden="true">↗</span></span>
+          </button>
+        ))}
       </div>
       <p className="panel-note">The register separates historical evidence from execution decisions. No permanent exit or rollout approval is generated.</p>
+      {selectedDecision && <DecisionModal decision={selectedDecision} onClose={() => setSelectedDecision(null)} />}
     </article>
+  )
+}
+
+function DecisionModal({ decision, onClose }) {
+  const cell = decisionCells.find((item) => item.id === decision.cellId)
+  return (
+    <DetailModal eyebrow={`board registration · ${decision.decisionId}`} title={decision.scope.customer} subtitle={`${decision.scope.product} · ${routeLabel(decision.scope.routeOrStatus)}`} onClose={onClose}>
+      <div className="modal-stat-grid"><div><small>positive sensitivity</small><strong>{formatMoney(decision.exposure.positiveSensitivity)}</strong></div><div><small>historical contribution</small><strong className={decision.exposure.historicalContribution < 0 ? 'negative-text' : ''}>{formatMoney(decision.exposure.historicalContribution)}</strong></div><div><small>owner</small><strong>{decision.ownerRole}</strong></div><div><small>horizon</small><strong>{decision.horizon.value}</strong></div></div>
+      <div className="modal-columns"><div className="modal-section"><span className="modal-label">business problem</span><div className="chip-list">{decision.businessProblem.map((problem) => <span className="problem-chip" key={problem}>{problemLabel(problem)}</span>)}</div><span className="modal-label">recommended posture</span><div className="chip-list">{decision.posture.map((posture) => <span className="posture-chip" key={posture}>{titleCase(posture)}</span>)}</div><span className="modal-label">activation evidence</span><p className="modal-copy">{decision.activationEvidence.map(problemLabel).join(' · ') || 'Historical review only.'}</p></div><div className="modal-section"><span className="modal-label">approval gates</span><div className="modal-gate-list">{decision.approvalGateDetails.map((gate) => <div key={gate.name}><b>{gate.name}</b><small>{gate.ownerRole} · {gate.requiredFor}</small></div>)}</div></div></div>
+      <div className="modal-stat-grid modal-secondary-stats"><div><small>DIFOT / sample</small><strong>{cell?.difot == null ? 'n.a.' : `${formatPercent(cell.difot)} · ${cell.difotHits}/${cell.difotDenominator}`}</strong></div><div><small>Held revenue</small><strong>{formatMoney(decision.exposure.heldRevenue)}</strong></div><div><small>decision status</small><strong>{decisionStatusLabel(decision.decisionStatus)}</strong></div><div><small>evidence</small><strong>Proposal</strong></div></div>
+      <div className="release-box"><small>release condition</small><b>{decision.releaseCondition}</b><span>Owner: {decision.ownerRole}</span></div>
+    </DetailModal>
   )
 }
 
