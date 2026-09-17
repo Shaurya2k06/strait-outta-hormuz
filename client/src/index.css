@@ -1,52 +1,16 @@
 :root {
-  font-family: var(--font-geist);
-  color: var(--color-carbon-ink);
-  background: var(--color-paper-white);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #17201c;
+  background: #f2f0eb;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-
-  --color-carbon-ink: #1a211e;
-  --color-paper-white: #ffffff;
-  --color-true-black: #000000;
-  --color-obsidian: #0c0c0c;
-  --color-fog: #eef1f0;
-  --color-mist: #e0e0e0;
-  --color-graphite: #606562;
-  --color-ash-border: #cccfcd;
-  --color-slate: #363537;
-  --color-pewter: #4e4e4e;
-  --color-ember-red: #cc2e39;
-
-  --font-geist: Inter, "Helvetica Neue", Arial, sans-serif;
-  --font-exposure: Georgia, Cambria, "Times New Roman", serif;
-  --font-bryant: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
-  --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-
-  --bg: var(--color-paper-white);
-  --panel: var(--color-paper-white);
-  --panel-soft: var(--color-fog);
-  --line: var(--color-mist);
-  --line-strong: var(--color-ash-border);
-  --text: var(--color-carbon-ink);
-  --muted: var(--color-graphite);
-  --faint: #8b918e;
-  --blue: var(--color-carbon-ink);
-  --mint: var(--color-carbon-ink);
-  --amber: var(--color-graphite);
-  --red: var(--color-ember-red);
-  --cyan: var(--color-carbon-ink);
-  --sans: var(--font-geist);
-  --mono: var(--font-geist-mono);
-  --label: var(--font-bryant);
-  --serif: var(--font-exposure);
 }
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { min-width: 320px; margin: 0; background: var(--color-paper-white); }
-button, input, select { font: inherit; }
-button { color: inherit; }
-a { color: inherit; }
-h1, h2, h3, p { margin-top: 0; }
-#root { min-height: 100vh; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; text-decoration: none; }
+table { border-collapse: collapse; }

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build the dashboard data from the supplied workbook.
+"""Generate the dataset-only analytical engine output.
 
-The workbook is parsed with the standard library so refreshes do not depend on
-an analysis package being installed.  The script writes the UI data and a QA
-report, and exits non-zero when a reconciliation check fails.
+The workbook is the only analytical input. This module deliberately keeps
+historical evidence, derived ledgers and conditional decision gates separate:
+it does not manufacture a forward forecast, route capacity or recovery rate.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import math
 import statistics
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 from xml.etree import ElementTree as ET
@@ -24,138 +25,50 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WORKBOOK = ROOT / "R2-WAR ROOM MASTERPLAN-cleaned.xlsx"
 DASHBOARD_PATH = ROOT / "client/src/dashboard-data.json"
 QA_PATH = ROOT / "analysis/qa-report.json"
-SOURCE_MANIFEST_PATH = ROOT / "analysis/source-manifest.json"
-DUPLICATE_ADJUDICATION_PATH = ROOT / "analysis/duplicate-adjudication.json"
-FORWARD_INPUTS_PATH = ROOT / "analysis/forward-inputs.json"
-SOURCE_CONTRACT_VERSION = "source-contract-v1"
-FORWARD_CONTRACT_VERSION = "forward-ledger-v1"
-APPROVED_RAW_ROWS = 243
-EXPECTED_CANONICAL_ROWS = 243
-EXPECTED_DUPLICATE_EXCESS = 0
-STATED_ROWS = EXPECTED_CANONICAL_ROWS
-FORWARD_ROUTES = {
-    "Cape of Good Hope",
-    "Pipeline Bypass",
-    "Overland Truck",
-    "Air Bridge",
-}
-PROPOSAL_ROUTE_INPUTS = {
-    "Cape of Good Hope": {
-        "capacityTonnes": 4_000_000,
-        "costPerTon": 18.0,
-        "insuranceRate": 0.018,
-        "serviceLowerBound": 0.67,
-        "expectedFuturePenaltyPerTon": 0.0,
-        "failureCostPerTon": 1.0,
-        "recoverableSurchargePerTon": 0.0,
-        "cargoTypes": ["Container (TEU)", "Bulk Liquid (Chem Tanker)", "Bulk Liquid (VLCC)"],
-    },
-    "Pipeline Bypass": {
-        "capacityTonnes": 2_000_000,
-        "costPerTon": 11.0,
-        "insuranceRate": 0.012,
-        "serviceLowerBound": 0.82,
-        "expectedFuturePenaltyPerTon": 0.0,
-        "failureCostPerTon": 0.7,
-        "recoverableSurchargePerTon": 0.0,
-        "cargoTypes": ["Bulk Liquid (Chem Tanker)", "Bulk Liquid (VLCC)"],
-    },
-    "Overland Truck": {
-        "capacityTonnes": 850_000,
-        "costPerTon": 95.0,
-        "insuranceRate": 0.01,
-        "serviceLowerBound": 0.78,
-        "expectedFuturePenaltyPerTon": 0.0,
-        "failureCostPerTon": 1.2,
-        "recoverableSurchargePerTon": 0.0,
-        "cargoTypes": ["Container (TEU)"],
-    },
-    "Air Bridge": {
-        "capacityTonnes": 35_000,
-        "costPerTon": 1_250.0,
-        "insuranceRate": 0.008,
-        "serviceLowerBound": 0.9,
-        "expectedFuturePenaltyPerTon": 0.0,
-        "failureCostPerTon": 0.8,
-        "recoverableSurchargePerTon": 0.0,
-        "cargoTypes": ["Container (TEU)"],
-    },
-}
+SCHEMA_VERSION = "2.0.0"
+EXPECTED_SOURCE_ROWS = 243
+EPSILON_CENTS = 0.01
 
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 NS = {"m": MAIN_NS}
 
-TEXT_FIELDS = {
-    "Shipment_ID",
-    "Departure_Date",
-    "Route_Type",
-    "Product_Category",
-    "Cargo_Type",
-    "Customer_Name",
-    "Customer_Region",
-    "DIFOT_Met",
-}
-
-ROUTE_LABELS = {
-    "Direct (Pre-Blockade)": "Direct / benchmark",
-    "Cape of Good Hope": "Cape of Good Hope",
-    "Pipeline Bypass": "Pipeline Bypass",
-    "Overland Truck": "Overland Truck",
-    "Air Bridge": "Air Bridge",
-    "Held in Gulf": "Held in Gulf",
-}
-
-SCENARIO_DEFINITIONS = [
-    {
-        "name": "Normalization",
-        "tone": "mint",
-        "detail": "Disruption days decline; routes, capacity, current quotes and insurance ease.",
-        "inputs": {
-            "costMultiplier": 0.9,
-            "insuranceMultiplier": 0.8,
-            "penaltyMultiplier": 0.6,
-            "clearRate": 0.75,
-            "heldInflowMultiplier": 0.5,
-            "recoveryRate": 0.7,
-            "serviceMultiplier": 1.02,
-            "unavailableRoutes": [],
-        },
-        "action": "Keep controls until release metrics clear.",
-    },
-    {
-        "name": "Prolonged disruption",
-        "tone": "amber",
-        "detail": "Current alternatives persist; capacity, delay, fuel and insurance step up.",
-        "inputs": {
-            "costMultiplier": 1.15,
-            "insuranceMultiplier": 1.2,
-            "penaltyMultiplier": 1.3,
-            "clearRate": 0.35,
-            "heldInflowMultiplier": 1.25,
-            "recoveryRate": 0.4,
-            "serviceMultiplier": 0.96,
-            "unavailableRoutes": [],
-        },
-        "action": "Extend only dated exceptions that clear the live hurdle.",
-    },
-    {
-        "name": "Escalation / next chokepoint",
-        "tone": "red",
-        "detail": "Pipeline capacity or one insurer is unavailable; Held inflow grows.",
-        "inputs": {
-            "costMultiplier": 1.35,
-            "insuranceMultiplier": 1.4,
-            "penaltyMultiplier": 1.6,
-            "clearRate": 0.15,
-            "heldInflowMultiplier": 1.5,
-            "recoveryRate": 0.2,
-            "serviceMultiplier": 0.82,
-            "unavailableRoutes": ["Pipeline Bypass"],
-        },
-        "action": "Exercise options; pause unrecovered commitments.",
-    },
+REQUIRED_COLUMNS = [
+    "Shipment_ID", "Departure_Date", "Route_Type", "Product_Category", "Cargo_Type",
+    "Customer_Name", "Customer_Region", "Customer_Since", "Cargo_Weight_Tons",
+    "Cargo_Value_USD", "Contracted_Freight_Revenue_USD", "Planned_Transit_Days",
+    "Actual_Transit_Days", "Delay_Days", "Freight_Cost_USD", "Fuel_Cost_USD",
+    "Insurance_Cost_USD", "Penalty_Cost_USD", "Total_Cost_to_Serve_USD",
+    "Revenue_Recognized_USD", "Gross_Margin_USD", "Gross_Margin_Pct", "DIFOT_Met",
+    "Cost_per_Ton_USD", "Revenue_per_Ton_USD", "Route_Margin_Sensitivity_USD",
+    "Customer_Concentration_Risk_Pct", "War_Risk_Insurance_Burden_Pct",
+    "Delay_Cost_Attribution_Pct",
 ]
+TEXT_FIELDS = {
+    "Shipment_ID", "Departure_Date", "Route_Type", "Product_Category", "Cargo_Type",
+    "Customer_Name", "Customer_Region", "DIFOT_Met",
+}
+NUMERIC_FIELDS = [field for field in REQUIRED_COLUMNS if field not in TEXT_FIELDS]
+
+ROUTE_ORDER = [
+    "Direct (Pre-Blockade)", "Cape of Good Hope", "Pipeline Bypass", "Overland Truck",
+    "Air Bridge", "Held in Gulf",
+]
+
+APPROVAL_GATES = {
+    "LIVE_ALL_IN_QUOTE": {"name": "LIVE_ALL_IN_QUOTE", "status": "missing", "ownerRole": "Supply Chain Head", "requiredFor": "route_pilot_authorization", "value": None, "effectiveDate": None, "approvedBy": None},
+    "ROUTE_WEEK_CAPACITY": {"name": "ROUTE_WEEK_CAPACITY", "status": "missing", "ownerRole": "Network Planning", "requiredFor": "route_pilot_authorization", "value": None, "effectiveDate": None, "approvedBy": None},
+    "PRODUCT_CARGO_FEASIBILITY": {"name": "PRODUCT_CARGO_FEASIBILITY", "status": "missing", "ownerRole": "Operations Head", "requiredFor": "route_pilot_authorization", "value": None, "effectiveDate": None, "approvedBy": None},
+    "INSURANCE_TERMS": {"name": "INSURANCE_TERMS", "status": "missing", "ownerRole": "Risk/Insurance Lead", "requiredFor": "route_pilot_authorization", "value": None, "effectiveDate": None, "approvedBy": None},
+    "SERVICE_REQUIREMENT": {"name": "SERVICE_REQUIREMENT", "status": "missing", "ownerRole": "Operations Head", "requiredFor": "route_pilot_authorization", "value": None, "effectiveDate": None, "approvedBy": None},
+    "CUSTOMER_RECOVERY_TERM": {"name": "CUSTOMER_RECOVERY_TERM", "status": "missing", "ownerRole": "Commercial Head", "requiredFor": "commercial_recovery_authorization", "value": None, "effectiveDate": None, "approvedBy": None},
+    "EFFECTIVE_DATE": {"name": "EFFECTIVE_DATE", "status": "missing", "ownerRole": "Finance Lead", "requiredFor": "decision_activation", "value": None, "effectiveDate": None, "approvedBy": None},
+    "APPROVING_OWNER": {"name": "APPROVING_OWNER", "status": "missing", "ownerRole": "Finance Lead", "requiredFor": "decision_activation", "value": None, "effectiveDate": None, "approvedBy": None},
+}
+ROUTE_PILOT_GATES = ["LIVE_ALL_IN_QUOTE", "ROUTE_WEEK_CAPACITY", "PRODUCT_CARGO_FEASIBILITY", "INSURANCE_TERMS", "SERVICE_REQUIREMENT", "EFFECTIVE_DATE", "APPROVING_OWNER"]
+COMMERCIAL_GATES = ["CUSTOMER_RECOVERY_TERM", "EFFECTIVE_DATE", "APPROVING_OWNER"]
+HELD_RELEASE_GATES = [*ROUTE_PILOT_GATES, "CUSTOMER_RECOVERY_TERM"]
+
 
 def column_number(reference: str) -> int:
     letters = "".join(character for character in reference if character.isalpha())
@@ -171,37 +84,28 @@ def cell_value(cell: ET.Element, shared_strings: list[str]) -> str:
         inline = cell.find("m:is", NS)
         return "".join(item.text or "" for item in inline.iter(f"{{{MAIN_NS}}}t")) if inline is not None else ""
     raw = value.text or ""
-    if cell.attrib.get("t") == "s":
-        return shared_strings[int(raw)]
-    return raw
+    return shared_strings[int(raw)] if cell.attrib.get("t") == "s" else raw
 
 
 def parse_workbook(path: Path) -> tuple[list[dict], dict]:
+    """Parse the Shipment_Data worksheet and normalize numeric fields."""
+    path = Path(path)
     with ZipFile(path) as archive:
         shared_strings: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
             root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
-            shared_strings = [
-                "".join(item.text or "" for item in string.iter(f"{{{MAIN_NS}}}t"))
-                for string in root
-            ]
-
+            shared_strings = ["".join(item.text or "" for item in string.iter(f"{{{MAIN_NS}}}t")) for string in root]
         workbook = ET.fromstring(archive.read("xl/workbook.xml"))
         relationships = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
         relation_map = {item.attrib["Id"]: item.attrib["Target"] for item in relationships}
-        shipment_sheet = next(
-            sheet
-            for sheet in workbook.findall("m:sheets/m:sheet", NS)
-            if sheet.attrib["name"] == "Shipment_Data"
-        )
+        shipment_sheet = next(sheet for sheet in workbook.findall("m:sheets/m:sheet", NS) if sheet.attrib["name"] == "Shipment_Data")
         relation_id = shipment_sheet.attrib[f"{{{REL_NS}}}id"]
-        sheet_target = relation_map[relation_id]
-        sheet_path = f"xl/{sheet_target.lstrip('/')}"
-        sheet = ET.fromstring(archive.read(sheet_path))
+        sheet = ET.fromstring(archive.read(f"xl/{relation_map[relation_id].lstrip('/')}"))
         rows = sheet.findall(".//m:row", NS)
+        width = max((column_number(cell.attrib.get("r", "")) for row in rows for cell in row.findall("m:c", NS)), default=0) + 1
 
         def values(row: ET.Element) -> list[str]:
-            result = [""] * 31
+            result = [""] * width
             for cell in row.findall("m:c", NS):
                 result[column_number(cell.attrib.get("r", ""))] = cell_value(cell, shared_strings)
             return result
@@ -209,310 +113,158 @@ def parse_workbook(path: Path) -> tuple[list[dict], dict]:
         header_values = values(rows[0])
         headers = [header for header in header_values if header]
         numeric_fields = set(headers) - TEXT_FIELDS
-        parsed = []
-        for row in rows[1:]:
+        parsed: list[dict] = []
+        for row_number, row in enumerate(rows[1:], 2):
             values_by_column = values(row)
+            if not any(values_by_column[index] for index, header in enumerate(header_values) if header):
+                continue
             record = {header: values_by_column[index] for index, header in enumerate(header_values) if header}
             for field in numeric_fields:
                 raw = record.get(field, "")
                 if raw in (None, ""):
                     record[field] = None
                 else:
-                    record[field] = float(raw)
+                    try:
+                        record[field] = float(raw)
+                    except (TypeError, ValueError) as error:
+                        raise ValueError(f"numeric field {field} failed to parse at workbook row {row_number}") from error
+            for field in TEXT_FIELDS:
+                if field in record and record[field] is not None:
+                    record[field] = str(record[field]).strip()
             parsed.append(record)
-
     source_bytes = path.read_bytes()
     return parsed, {
-        "sheet": "Shipment_Data",
-        "columns": headers,
-        "sourceRows": len(parsed),
-        "sourceFile": path.name,
-        "sourceSha256": hashlib.sha256(source_bytes).hexdigest(),
+        "sourceFile": path.name, "sourceSheet": "Shipment_Data", "sourceRows": len(parsed),
+        "columns": headers, "sourceSha256": hashlib.sha256(source_bytes).hexdigest(),
         "sourceSizeBytes": len(source_bytes),
     }
 
 
-def normalized_record(record: dict) -> tuple:
-    return tuple(
-        (key, round(value, 9) if isinstance(value, float) else value)
-        for key, value in sorted(record.items())
-    )
+def _counts(values: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for item in values:
+        counts[item] += 1
+    return counts
 
 
-def canonicalize(records: list[dict]) -> tuple[list[dict], dict]:
-    by_id: dict[str, list[dict]] = defaultdict(list)
-    blank_ids = []
-    for row_number, record in enumerate(records, 2):
-        shipment_id = str(record.get("Shipment_ID") or "").strip()
-        if not shipment_id:
-            blank_ids.append(row_number)
-            continue
-        record["Shipment_ID"] = shipment_id
-        by_id[shipment_id].append(record)
-
-    canonical = []
-    exact_duplicates = []
-    conflicts = []
-    for shipment_id, group in by_id.items():
-        if len(group) == 1:
-            canonical.append(group[0])
-            continue
-        if len({normalized_record(record) for record in group}) == 1:
-            exact_duplicates.append({"shipmentId": shipment_id, "rows": len(group)})
-            canonical.append(group[0])
-            continue
-        differing_fields = [
-            field
-            for field in group[0]
-            if len({record.get(field) for record in group}) > 1
-        ]
-        conflicts.append({"shipmentId": shipment_id, "rows": len(group), "fields": differing_fields})
-
-    duplicate_excess_rows = sum(max(item["rows"] - 1, 0) for item in exact_duplicates)
-    adjudication_table = [
-        {
-            "shipmentId": item["shipmentId"],
-            "rawRows": item["rows"],
-            "canonicalRows": 1,
-            "excessRows": item["rows"] - 1,
-            "decision": "collapse_exact_duplicate",
-        }
-        for item in exact_duplicates
-    ]
-    return canonical, {
-        "duplicateGroups": len(exact_duplicates) + len(conflicts),
-        "exactDuplicatesCollapsed": exact_duplicates,
-        "conflicts": conflicts,
-        "blankShipmentIdRows": blank_ids,
-        "duplicateExcessRows": duplicate_excess_rows,
-        "adjudicationTable": adjudication_table,
-    }
-
-
-def load_json(path: Path) -> dict:
-    with path.open(encoding="utf-8") as file:
-        payload = json.load(file)
-    if not isinstance(payload, dict):
-        raise ValueError(f"{path} must contain a JSON object")
-    return payload
-
-
-def source_gate_status(source_info: dict, duplicate_info: dict, canonical_rows: int, manifest: dict) -> dict:
-    expected_raw_rows = manifest.get("approvedRawRows", APPROVED_RAW_ROWS)
-    expected_canonical_rows = manifest.get("expectedCanonicalRows", EXPECTED_CANONICAL_ROWS)
-    expected_duplicate_excess = manifest.get("expectedDuplicateExcessRows", EXPECTED_DUPLICATE_EXCESS)
-    expected_duplicate_ids = sorted(manifest.get("expectedExactDuplicateShipmentIds", []))
-    actual_duplicate_ids = sorted(
-        item["shipmentId"] for item in duplicate_info["exactDuplicatesCollapsed"]
-    )
-    expected_hash = manifest.get("approvedSha256")
+def validate_source(records: list[dict], source_info: dict | None = None) -> dict:
+    """Validate the accepted 243-row source contract before calculation."""
+    source_info = source_info or {}
+    present_columns = set(source_info.get("columns", [])) or (set(records[0]) if records else set())
+    missing_columns = [field for field in REQUIRED_COLUMNS if field not in present_columns]
+    shipment_ids = [str(record.get("Shipment_ID") or "").strip() for record in records]
+    nonblank_ids = [shipment_id for shipment_id in shipment_ids if shipment_id]
+    duplicate_ids = sorted(shipment_id for shipment_id, count in _counts(nonblank_ids).items() if count > 1)
+    numeric_parse_failures = []
+    for index, record in enumerate(records, 2):
+        for field in NUMERIC_FIELDS:
+            field_value = record.get(field)
+            if field_value is not None and (not isinstance(field_value, (int, float)) or not math.isfinite(float(field_value))):
+                numeric_parse_failures.append(f"row {index}: {field}")
+        if record.get("Route_Type") != "Held in Gulf" and record.get("Actual_Transit_Days") is None:
+            numeric_parse_failures.append(f"row {index}: Actual_Transit_Days missing for completed shipment")
     checks = {
-        "approvedRawRows": source_info["sourceRows"] == expected_raw_rows,
-        "canonicalRows": canonical_rows == expected_canonical_rows,
-        "duplicateExcessRows": duplicate_info["duplicateExcessRows"] == expected_duplicate_excess,
-        "noBlankShipmentIds": not duplicate_info["blankShipmentIdRows"],
-        "noConflictingDuplicates": not duplicate_info["conflicts"],
-        "duplicateAdjudicationMatchesManifest": actual_duplicate_ids == expected_duplicate_ids,
-        "approvedWorkbookHash": bool(expected_hash) and source_info["sourceSha256"] == expected_hash,
-        "approvedSourceVersion": source_info["sourceFile"] == manifest.get("approvedRawSourceFile"),
-        "sourceContractVersion": manifest.get("contractVersion") == SOURCE_CONTRACT_VERSION,
+        "rowCount": len(records) == EXPECTED_SOURCE_ROWS,
+        "requiredColumns": not missing_columns,
+        "nonblankShipmentIds": len(nonblank_ids) == len(records),
+        "uniqueShipmentIds": len(set(nonblank_ids)) == EXPECTED_SOURCE_ROWS,
+        "numericFieldsParse": not numeric_parse_failures,
     }
-    reasons = {
-        name: (
-            "pass"
-            if passed
-            else {
-                "approvedRawRows": f"expected {expected_raw_rows} raw rows; found {source_info['sourceRows']}",
-                "canonicalRows": f"expected {expected_canonical_rows} canonical rows; found {canonical_rows}",
-                "duplicateExcessRows": (
-                    f"expected {expected_duplicate_excess} duplicate excess rows; "
-                    f"found {duplicate_info['duplicateExcessRows']}"
-                ),
-                "noBlankShipmentIds": "blank Shipment_ID rows require adjudication",
-                "noConflictingDuplicates": "conflicting duplicate Shipment_ID fields require adjudication",
-                "duplicateAdjudicationMatchesManifest": (
-                    f"expected duplicate IDs {expected_duplicate_ids}; found {actual_duplicate_ids}"
-                ),
-                "approvedWorkbookHash": "approvedSha256 is missing or does not match the workbook",
-                "approvedSourceVersion": (
-                    f"expected approved source {manifest.get('approvedRawSourceFile')}; "
-                    f"found {source_info['sourceFile']}"
-                ),
-                "sourceContractVersion": f"expected {SOURCE_CONTRACT_VERSION}",
-            }[name]
-        )
-        for name, passed in checks.items()
-    }
+    failed = [name for name, passed in checks.items() if not passed]
     return {
-        "pass": all(checks.values()),
-        "status": "verified" if all(checks.values()) else "unverified",
-        "checks": checks,
-        "reasons": reasons,
-        "approvedRawRows": expected_raw_rows,
-        "expectedCanonicalRows": expected_canonical_rows,
-        "expectedDuplicateExcessRows": expected_duplicate_excess,
-        "observedRawRows": source_info["sourceRows"],
-        "observedCanonicalRows": canonical_rows,
-        "observedDuplicateExcessRows": duplicate_info["duplicateExcessRows"],
-        "approvedSourceFile": manifest.get("approvedRawSourceFile"),
-        "observedSourceFile": source_info["sourceFile"],
-        "observedSha256": source_info["sourceSha256"],
-    }
-
-
-def forward_input_status(payload: dict) -> dict:
-    routes = payload.get("routes") if isinstance(payload.get("routes"), dict) else {}
-    required_route_fields = (
-        "capacityTonnes",
-        "costPerTon",
-        "insuranceRate",
-        "serviceLowerBound",
-        "expectedFuturePenaltyPerTon",
-        "failureCostPerTon",
-        "recoverableSurchargePerTon",
-    )
-    def valid_route(route: dict) -> bool:
-        if not isinstance(route, dict) or not all(route.get(field) is not None for field in required_route_fields):
-            return False
-        if not all(isinstance(route[field], (int, float)) and math.isfinite(route[field]) for field in required_route_fields):
-            return False
-        return (
-            route["capacityTonnes"] >= 0
-            and route["costPerTon"] >= 0
-            and 0 <= route["insuranceRate"] <= 1
-            and 0 <= route["serviceLowerBound"] <= 1
-            and route["expectedFuturePenaltyPerTon"] >= 0
-            and route["failureCostPerTon"] >= 0
-            and route["recoverableSurchargePerTon"] >= 0
-            and bool(route.get("cargoTypes"))
-        )
-
-    complete = bool(routes) and set(routes) == FORWARD_ROUTES and all(valid_route(route) for route in routes.values())
-    approved = payload.get("approved") is True
-    versioned = payload.get("contractVersion") == FORWARD_CONTRACT_VERSION
-    has_source = bool(payload.get("source"))
-    has_effective_date = bool(payload.get("effectiveDate"))
-    ready = approved and complete and versioned and has_source and has_effective_date
-    return {
-        "ready": ready,
-        "status": "verified" if ready else "awaiting owner approval",
-        "approved": approved,
-        "complete": complete,
-        "versioned": versioned,
-        "hasSource": has_source,
-        "hasEffectiveDate": has_effective_date,
-        "source": payload.get("source", "missing"),
-        "effectiveDate": payload.get("effectiveDate"),
-        "requiredFields": [
-            "approved owner-supplied route-week capacity",
-            "quoted incremental freight and fuel",
-            "incremental insurance rate",
-            "expected future penalty and failure cost",
-            "service lower bound",
-            "recoverable surcharge / price term",
-            "route-week capacity or an approved horizon capacity",
-        ],
+        "pass": not failed, "sourceStatus": "accepted" if not failed else "rejected", "checks": checks,
+        "failedChecks": failed, "missingColumns": missing_columns, "duplicateShipmentIds": duplicate_ids,
+        "numericParseFailures": numeric_parse_failures, "sourceRows": len(records),
+        "uniqueShipmentIds": len(set(nonblank_ids)),
     }
 
 
 def classify(record: dict) -> str:
     route = record["Route_Type"]
-    if route.startswith("Direct"):
-        return "reference"
+    if route == "Direct (Pre-Blockade)":
+        return "direct_reference"
     if route == "Held in Gulf":
-        return "held"
-    return "delivered"
+        return "held_open"
+    return "post_blockade_delivered"
 
 
-def value(record: dict, field: str) -> float:
-    return record.get(field) or 0.0
+def classify_records(records: list[dict]) -> dict[str, list[dict]]:
+    classified = {"direct_reference": [], "post_blockade_delivered": [], "held_open": []}
+    for record in records:
+        enriched = dict(record)
+        enriched["universe"] = classify(record)
+        classified[enriched["universe"]].append(enriched)
+    return classified
+
+
+def record_universe(record: dict) -> str:
+    return record.get("universe") or classify(record)
+
+
+def number(record: dict, field: str) -> float:
+    raw = record.get(field)
+    return float(raw) if isinstance(raw, (int, float)) and math.isfinite(float(raw)) else 0.0
+
+
+def ratio(numerator: float, denominator: float) -> float | None:
+    return numerator / denominator * 100 if denominator else None
 
 
 def aggregate(records: list[dict]) -> dict:
-    completed = [record for record in records if record["kind"] in {"delivered", "reference"}]
-    held = [record for record in records if record["kind"] == "held"]
-    tonnes = sum(value(record, "Cargo_Weight_Tons") for record in records)
-    cargo_value = sum(value(record, "Cargo_Value_USD") for record in records)
-    contracted = sum(value(record, "Contracted_Freight_Revenue_USD") for record in records)
-    recognized = sum(value(record, "Revenue_Recognized_USD") for record in records)
-    cost = sum(value(record, "Total_Cost_to_Serve_USD") for record in records)
-    signed = sum(value(record, "Route_Margin_Sensitivity_USD") for record in records)
-    adverse = sum(max(value(record, "Route_Margin_Sensitivity_USD"), 0) for record in records)
-    delay = sum(max(value(record, "Delay_Days"), 0) for record in completed)
-    planned = sum(value(record, "Planned_Transit_Days") for record in completed)
-    actual = sum(value(record, "Actual_Transit_Days") for record in completed)
+    completed = [record for record in records if record_universe(record) in {"direct_reference", "post_blockade_delivered"}]
+    held = [record for record in records if record_universe(record) == "held_open"]
+    tonnes = sum(number(record, "Cargo_Weight_Tons") for record in records)
+    cargo_value = sum(number(record, "Cargo_Value_USD") for record in records)
+    contracted = sum(number(record, "Contracted_Freight_Revenue_USD") for record in records)
+    recognized = sum(number(record, "Revenue_Recognized_USD") for record in records)
+    cost = sum(number(record, "Total_Cost_to_Serve_USD") for record in records)
+    insurance = sum(number(record, "Insurance_Cost_USD") for record in records)
+    penalty = sum(number(record, "Penalty_Cost_USD") for record in records)
+    signed_sensitivity = sum(number(record, "Route_Margin_Sensitivity_USD") for record in records)
+    positive_sensitivity = sum(max(number(record, "Route_Margin_Sensitivity_USD"), 0) for record in records)
+    completed_delay = sum(max(number(record, "Delay_Days"), 0) for record in completed)
+    held_age = sum(max(number(record, "Delay_Days"), 0) for record in held)
+    planned = sum(number(record, "Planned_Transit_Days") for record in completed)
+    actual = sum(number(record, "Actual_Transit_Days") for record in completed)
     difot_hits = sum(record.get("DIFOT_Met") == "Y" for record in completed)
-
-    def ratio(numerator: float, denominator: float) -> float | None:
-        return numerator / denominator * 100 if denominator else None
-
     return {
-        "shipments": len(records),
-        "tonnes": tonnes,
-        "cargoValue": cargo_value,
-        "contracted": contracted,
-        "recognized": recognized,
-        "cost": cost,
-        "grossMargin": recognized - cost,
-        "signedSensitivity": signed,
-        "adverse": adverse,
-        "insurance": sum(value(record, "Insurance_Cost_USD") for record in records),
-        "penalty": sum(value(record, "Penalty_Cost_USD") for record in records),
-        "plannedDays": planned,
-        "actualDays": actual,
-        "delayDays": delay,
-        "heldAgeDays": sum(value(record, "Delay_Days") for record in held),
-        "difotHits": difot_hits,
-        "difotDenominator": len(completed),
-        "difot": ratio(difot_hits, len(completed)),
-        "costPerTon": ratio(cost, tonnes) / 100 if tonnes else None,
-        "revenuePerTon": ratio(contracted, tonnes) / 100 if tonnes else None,
-        "insuranceBurden": ratio(sum(value(record, "Insurance_Cost_USD") for record in records), cargo_value),
-        "delayAttribution": ratio(sum(value(record, "Penalty_Cost_USD") for record in records), cost),
-        "transitIndex": ratio(actual, planned),
-        "deliveredShipments": len(completed),
-        "heldShipments": len(held),
+        "shipments": len(records), "tonnes": tonnes, "cargoValue": cargo_value,
+        "contractedRevenue": contracted, "recognizedRevenue": recognized, "totalCost": cost,
+        "historicalContribution": recognized - cost, "signedSensitivity": signed_sensitivity,
+        "positiveSensitivity": positive_sensitivity, "favourableOffset": abs(sum(min(number(record, "Route_Margin_Sensitivity_USD"), 0) for record in records)),
+        "insuranceComponent": insurance, "penaltyComponent": penalty,
+        "deliveredDelayDays": completed_delay, "heldAgeDays": held_age,
+        "plannedTransitDays": planned, "actualTransitDays": actual,
+        "averagePlannedTransitDays": planned / len(completed) if completed else None,
+        "averageActualTransitDays": actual / len(completed) if completed else None,
+        "difotHits": difot_hits, "difotDenominator": len(completed), "difot": ratio(difot_hits, len(completed)),
+        "costPerTon": cost / tonnes if tonnes else None, "contractedRevenuePerTon": contracted / tonnes if tonnes else None,
+        "insuranceBurdenPct": ratio(insurance, cargo_value), "penaltyAttributionPct": ratio(penalty, cost),
+        "deliveredShipments": len(completed), "heldShipments": len(held),
     }
 
 
-def clean_number(value_to_clean):
-    if isinstance(value_to_clean, float) and not math.isfinite(value_to_clean):
-        return None
-    if isinstance(value_to_clean, dict):
-        return {key: clean_number(value) for key, value in value_to_clean.items()}
-    if isinstance(value_to_clean, list):
-        return [clean_number(value) for value in value_to_clean]
-    return value_to_clean
-
-
-def group_records(records: list[dict], keys: tuple[str, ...]) -> dict[tuple, list[dict]]:
-    groups: dict[tuple, list[dict]] = defaultdict(list)
-    for record in records:
-        groups[tuple(record[key] for key in keys)].append(record)
-    return groups
-
-
-def percentile(values: list[float], fraction: float) -> float:
+def percentile(values: list[float], fraction: float) -> float | None:
     ordered = sorted(values)
     if not ordered:
-        return 0.0
+        return None
     if len(ordered) == 1:
         return ordered[0]
     position = (len(ordered) - 1) * fraction
-    lower = math.floor(position)
-    upper = math.ceil(position)
+    lower, upper = math.floor(position), math.ceil(position)
     if lower == upper:
         return ordered[lower]
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
-def empirical_rank(values: list[float], current: float) -> float:
-    if len(values) <= 1:
-        return 50.0
+def peer_percentile(values: list[float], current: float | None) -> float | None:
+    if current is None or not values:
+        return None
     return sum(value <= current for value in values) / len(values) * 100
 
 
 def service_interval(hits: int, sample: int) -> dict | None:
+    """Return a Jeffreys posterior mean and 90% interval in percentage points."""
     if not sample:
         return None
 
@@ -521,8 +273,7 @@ def service_interval(hits: int, sample: int) -> dict | None:
         qab, qap, qam = a + b, a + 1, a - 1
         c, d = 1.0, 1.0 - qab * x / qap
         d = max(abs(d), tiny) * (1 if d >= 0 else -1)
-        d = 1 / d
-        h = d
+        d, h = 1 / d, 1 / d
         for m in range(1, 201):
             m2 = 2 * m
             aa = m * (b - m) * x / ((qam + m2) * (a + m2))
@@ -561,923 +312,414 @@ def service_interval(hits: int, sample: int) -> dict | None:
                 high = middle
         return (low + high) / 2
 
-    # Jeffreys pseudo-counts keep 100% cells from presenting as certainty.
     alpha, beta = hits + 0.5, sample - hits + 0.5
+    return {"adjusted": alpha / (alpha + beta) * 100, "lower": beta_quantile(0.05, alpha, beta) * 100, "upper": beta_quantile(0.95, alpha, beta) * 100}
+
+
+def group_records(records: list[dict], keys: tuple[str, ...]) -> dict[tuple, list[dict]]:
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for record in records:
+        groups[tuple(record.get(key) for key in keys)].append(record)
+    return groups
+
+
+def build_financial_bridge(delivered: list[dict]) -> dict:
+    summary = aggregate(delivered)
+    direct_equivalent_cost = summary["totalCost"] - summary["signedSensitivity"]
+    benchmark_contribution = summary["recognizedRevenue"] - direct_equivalent_cost
+    observed_contribution = summary["recognizedRevenue"] - summary["totalCost"]
+    positive_sensitivity = summary["positiveSensitivity"]
     return {
-        "adjusted": alpha / (alpha + beta) * 100,
-        "lower": beta_quantile(0.05, alpha, beta) * 100,
-        "upper": beta_quantile(0.95, alpha, beta) * 100,
+        "population": "post_blockade_delivered", "deliveredRecognizedRevenue": summary["recognizedRevenue"],
+        "actualDeliveredCost": summary["totalCost"], "signedDeliveredSensitivity": summary["signedSensitivity"], "positiveDeliveredSensitivity": summary["positiveSensitivity"], "favourableOffset": summary["favourableOffset"],
+        "directEquivalentCost": direct_equivalent_cost, "benchmarkContribution": benchmark_contribution,
+        "observedDeliveredContribution": observed_contribution,
+        "reconciliationDifference": benchmark_contribution - summary["signedSensitivity"] - observed_contribution,
+        "recoveryDiagnostic": {
+            "observedDeliveredLoss": abs(observed_contribution),
+            "positiveDeliveredSensitivity": positive_sensitivity,
+            "offsetSharePct": abs(observed_contribution) / positive_sensitivity * 100 if positive_sensitivity else None,
+            "evidenceType": "DERIVED",
+            "population": "post_blockade_delivered",
+            "limitations": ["Historical fixed-ledger diagnostic only; not a forecasted customer recovery rate."],
+        },
+        "steps": [
+            {"key": "deliveredRecognizedRevenue", "label": "Delivered recognized revenue", "value": summary["recognizedRevenue"], "displaySharePct": 100},
+            {"key": "actualDeliveredCost", "label": "Actual delivered cost", "value": summary["totalCost"], "displaySharePct": summary["totalCost"] / summary["recognizedRevenue"] * 100 if summary["recognizedRevenue"] else None},
+            {"key": "signedDeliveredSensitivity", "label": "Signed route-cost impact", "value": -summary["signedSensitivity"], "displaySharePct": summary["signedSensitivity"] / summary["recognizedRevenue"] * 100 if summary["recognizedRevenue"] else None},
+            {"key": "benchmarkContribution", "label": "Direct-equivalent benchmark contribution", "value": benchmark_contribution, "displaySharePct": abs(benchmark_contribution) / summary["recognizedRevenue"] * 100 if summary["recognizedRevenue"] else None},
+            {"key": "observedDeliveredContribution", "label": "Observed delivered contribution", "value": observed_contribution, "displaySharePct": abs(observed_contribution) / summary["recognizedRevenue"] * 100 if summary["recognizedRevenue"] else None},
+        ],
+        "evidenceType": "DERIVED", "numerator": "recognized revenue, actual cost and supplied signed sensitivity", "denominator": "post-blockade delivered shipments",
+        "limitations": ["Direct is a supplied historical product-matched benchmark.", "Signed sensitivity is used as supplied; it is not a forecasted loss.", "The bridge describes the delivered historical ledger only."],
     }
 
 
-def robustness_lattice(rows: list[dict]) -> dict:
-    vectors = [
-        (m, insurance, delay, concentration)
-        for m in range(35, 56, 5)
-        for insurance in range(5, 21, 5)
-        for delay in range(15, 31, 5)
-        for concentration in range(15, 31, 5)
-        if m + insurance + delay + concentration == 100
-    ]
-    raw_values = {
-        component: [row[component] for row in rows]
-        for component in ("M", "I", "D", "C")
+def _exposure_rows(records: list[dict], dimension: str, all_records: list[dict] | None = None) -> list[dict]:
+    groups = group_records(records, (dimension,))
+    full_groups = group_records(all_records or records, (dimension,))
+    rows = []
+    for (member,), group in groups.items():
+        summary = aggregate(group)
+        full_summary = aggregate(full_groups.get((member,), []))
+        rows.append({
+            "id": f"{dimension}|{member}", "name": member, "positiveSensitivity": summary["positiveSensitivity"],
+            "signedSensitivity": summary["signedSensitivity"], "favourableOffset": summary["favourableOffset"], "historicalContribution": summary["historicalContribution"],
+            "contractedRevenue": summary["contractedRevenue"], "fullContractedRevenue": full_summary["contractedRevenue"],
+            "recognizedRevenue": summary["recognizedRevenue"], "heldRevenue": sum(number(record, "Contracted_Freight_Revenue_USD") for record in group if record_universe(record) == "held_open"),
+            "sample": summary["shipments"], "deliveredSample": summary["deliveredShipments"], "heldSample": summary["heldShipments"],
+            "difot": summary["difot"], "difotHits": summary["difotHits"], "difotDenominator": summary["difotDenominator"],
+            "serviceInterval": service_interval(summary["difotHits"], summary["difotDenominator"]),
+            "insuranceBurdenPct": summary["insuranceBurdenPct"], "penaltyAttributionPct": summary["penaltyAttributionPct"],
+            "evidenceLevel": "historical_derived", "exposurePopulation": "post_blockade_shock",
+        })
+    rows.sort(key=lambda item: (-item["positiveSensitivity"], item["name"]))
+    total_positive = sum(item["positiveSensitivity"] for item in rows)
+    cumulative = 0.0
+    for rank, item in enumerate(rows, 1):
+        share = item["positiveSensitivity"] / total_positive * 100 if total_positive else 0.0
+        cumulative += share
+        item.update({"rank": rank, "exposureSharePct": share, "cumulativeSharePct": cumulative})
+    return rows
+
+
+def build_customer_exposure(shock: list[dict], all_records: list[dict]) -> list[dict]:
+    return _exposure_rows(shock, "Customer_Name", all_records)
+
+
+def build_product_exposure(shock: list[dict]) -> list[dict]:
+    return _exposure_rows(shock, "Product_Category")
+
+
+def build_service_evidence(delivered: list[dict], direct: list[dict]) -> dict:
+    delivered_summary, direct_summary = aggregate(delivered), aggregate(direct)
+    return {
+        "direct_reference": {"difot": direct_summary["difot"], "difotHits": direct_summary["difotHits"], "difotDenominator": direct_summary["difotDenominator"], "serviceInterval": service_interval(direct_summary["difotHits"], direct_summary["difotDenominator"]), "actualTransitDays": direct_summary["actualTransitDays"], "averageActualTransitDays": direct_summary["averageActualTransitDays"], "evidenceType": "DERIVED", "population": "direct_reference", "numerator": "DIFOT hits", "denominator": "completed Direct reference shipments", "limitations": ["Historical benchmark only; not a forward service promise."]},
+        "post_blockade_delivered": {"difot": delivered_summary["difot"], "difotHits": delivered_summary["difotHits"], "difotDenominator": delivered_summary["difotDenominator"], "serviceInterval": service_interval(delivered_summary["difotHits"], delivered_summary["difotDenominator"]), "actualTransitDays": delivered_summary["actualTransitDays"], "averageActualTransitDays": delivered_summary["averageActualTransitDays"], "evidenceType": "DERIVED", "population": "post_blockade_delivered", "numerator": "DIFOT hits", "denominator": "completed post-blockade delivered shipments", "limitations": ["Observed service only; no unapproved lower bound is applied."]},
+        "held_open": {"difot": None, "actualTransitDays": None, "difotHits": None, "difotDenominator": None, "serviceInterval": None, "evidenceType": "FACT", "population": "held_open", "limitations": ["Held shipments have no completed delivery outcome."]},
     }
-    result = []
-    for row in rows:
-        ranks = []
-        for weights in vectors:
-            scored = sorted(
-                (
-                    0.01 * sum(
-                        weight * empirical_rank(raw_values[component], candidate[component])
-                        for weight, component in zip(weights, ("M", "I", "D", "C"))
-                    ),
-                    candidate["name"],
-                )
-                for candidate in rows
-            )
-            ranks.append(next(index for index, (_, name) in enumerate(reversed(scored), 1) if name == row["name"]))
-        result.append(
-            {
-                "name": row["name"],
-                "minRank": min(ranks),
-                "maxRank": max(ranks),
-                "topTwoShare": sum(rank <= 2 for rank in ranks) / len(ranks) * 100,
-            }
-        )
-    return {"vectors": len(vectors), "rows": result}
 
 
-def flags_for(summary: dict, top_decile: float) -> list[str]:
-    flags = []
-    if summary["heldShipments"]:
-        flags.append("HELD_OPEN_EXPOSURE")
-    if summary["adverse"] >= top_decile and summary["adverse"] > 0:
-        flags.append("TOP_DECILE_IMPACT")
-    if summary["deliveredShipments"] and summary["grossMargin"] < 0:
-        flags.append("DELIVERED_NEGATIVE_MARGIN")
-    if summary["difot"] is not None and summary["difot"] < 90:
-        flags.append("DIFOT_BREACH")
-    if summary["shipments"] < 3:
-        flags.append("LOW_SAMPLE")
-    return flags
+def build_held_ledger(held: list[dict]) -> dict:
+    summary = aggregate(held)
+    rows = []
+    for record in sorted(held, key=lambda item: item["Shipment_ID"]):
+        tonnes, revenue, cost = number(record, "Cargo_Weight_Tons"), number(record, "Contracted_Freight_Revenue_USD"), number(record, "Total_Cost_to_Serve_USD")
+        rows.append({
+            "shipmentId": record["Shipment_ID"], "customer": record["Customer_Name"], "product": record["Product_Category"], "routeOrStatus": record["Route_Type"], "tonnes": tonnes,
+            "revenueUnlocked": revenue, "contractedRevenue": revenue, "accruedCost": cost, "insuranceComponent": number(record, "Insurance_Cost_USD"), "penaltyComponent": number(record, "Penalty_Cost_USD"), "heldAgeDays": number(record, "Delay_Days"),
+            "currentMargin": -cost, "fullLifePreFutureMargin": revenue - cost, "fullLifeGap": max(cost - revenue, 0), "optimisticIncrementalCostCeiling": revenue, "optimisticCeilingPerTon": revenue / tonnes if tonnes else None,
+            "forwardContribution": None, "difot": None, "actualTransitDays": None, "evidenceLevel": "historical_fact",
+        })
+    return {
+        "summary": {"shipments": summary["shipments"], "tonnes": summary["tonnes"], "contractedRevenue": summary["contractedRevenue"], "accruedCost": summary["totalCost"], "insuranceComponent": summary["insuranceComponent"], "penaltyComponent": summary["penaltyComponent"], "currentMargin": -summary["totalCost"], "fullLifePreFutureMargin": summary["contractedRevenue"] - summary["totalCost"], "fullLifeGap": max(summary["totalCost"] - summary["contractedRevenue"], 0), "cumulativeAgeDays": summary["heldAgeDays"], "medianAgeDays": statistics.median([number(record, "Delay_Days") for record in held]), "p90AgeDays": percentile([number(record, "Delay_Days") for record in held], 0.9), "maximumAgeDays": max(number(record, "Delay_Days") for record in held), "optimisticIncrementalCostCeiling": summary["contractedRevenue"], "optimisticCeilingPerTon": summary["contractedRevenue"] / summary["tonnes"] if summary["tonnes"] else None, "forwardContribution": None},
+        "rows": rows, "evidenceType": "DERIVED", "population": "held_open", "numerator": "contracted revenue and accrued cost by Held shipment", "denominator": "Held shipment records",
+        "limitations": ["This is triage evidence, not an optimized release schedule.", "Forward contribution stays null until all approved inputs are present.", "Accrued cost includes insurance and penalty components already inside total cost."],
+    }
 
 
-def score_rows(groups: dict[str, tuple[list[dict], dict, float]], top_deciles: dict[str, float]) -> list[dict]:
-    prepared = []
-    for name, (records, summary, concentration) in groups.items():
-        prepared.append(
-            {
-                "name": name,
-                "summary": summary,
-                "M": summary["adverse"] / summary["contracted"] * 100 if summary["contracted"] else 0,
-                "I": summary["insuranceBurden"] or 0,
-                "D": summary["delayAttribution"] or 0,
-                "C": concentration,
-                "records": records,
-            }
-        )
-
-    score_components = {}
-    for component in ("M", "I", "D", "C"):
-        raw = [item[component] for item in prepared]
-        low = percentile(raw, 0.05)
-        high = percentile(raw, 0.95)
-        capped = [min(max(item[component], low), high) for item in prepared]
-        score_components[component] = [empirical_rank(capped, value) for value in capped]
-
-    for index, item in enumerate(prepared):
-        item["score"] = round(
-            0.45 * score_components["M"][index]
-            + 0.15 * score_components["I"][index]
-            + 0.20 * score_components["D"][index]
-            + 0.20 * score_components["C"][index]
-        )
-        item["flags"] = flags_for(item["summary"], top_deciles[item["name"]])
-
-    prepared.sort(key=lambda item: (-item["score"], -item["summary"]["adverse"], item["name"]))
-    return [
-        {
-            "name": item["name"],
-            "score": item["score"],
-            "M": item["M"],
-            "I": item["I"],
-            "D": item["D"],
-            "C": item["C"],
-            "sample": item["summary"]["shipments"],
-            "adverse": item["summary"]["adverse"],
-            "contracted": item["summary"]["contracted"],
-            "grossMargin": item["summary"]["grossMargin"],
-            "difot": item["summary"]["difot"],
-            "flags": item["flags"],
-        }
-        for item in prepared
-    ]
+def _route_option(product: str, route: str, records: list[dict]) -> dict:
+    summary = aggregate(records)
+    return {"route": route, "sample": summary["shipments"], "tonnes": summary["tonnes"], "costPerTon": summary["costPerTon"], "difot": summary["difot"], "difotHits": summary["difotHits"], "difotDenominator": summary["difotDenominator"], "serviceInterval": service_interval(summary["difotHits"], summary["difotDenominator"]), "historicalContribution": summary["historicalContribution"], "positiveSensitivity": summary["positiveSensitivity"], "evidenceType": "DERIVED", "population": "post_blockade_delivered", "product": product}
 
 
-def action_for_cell(cell: dict) -> tuple[str, str, str]:
-    if cell["kind"] == "held":
-        return (
-            "Release / route validate",
-            "COO",
-            "HELD_OPEN_EXPOSURE or age >5 days",
-        )
-    if "DELIVERED_NEGATIVE_MARGIN" in cell["flags"] or (cell["severity"] or 0) > 100:
-        return (
-            "Reprice / matched-route pilot",
-            "CCO",
-            "Contribution-negative or severity >100%",
-        )
-    return ("Govern / monitor", "COO", "No hard trigger; recheck at next review")
-
-
-def build_cells(shock_records: list[dict]) -> list[dict]:
-    groups = group_records(shock_records, ("Customer_Name", "Product_Category", "routeLabel"))
-    summaries = {key: aggregate(records) for key, records in groups.items()}
-    adverse_values = [summary["adverse"] for summary in summaries.values()]
-    top_decile = percentile(adverse_values, 0.9)
-    cells = []
-    for (customer, product, route), records in groups.items():
-        summary = summaries[(customer, product, route)]
-        kind = records[0]["kind"]
-        flags = flags_for(summary, top_decile)
-        cell = {
-            "customer": customer,
-            "product": product,
-            "route": route,
-            "kind": kind,
-            "shipments": summary["shipments"],
-            "tonnes": summary["tonnes"],
-            "contracted": summary["contracted"],
-            "recognized": summary["recognized"],
-            "cost": summary["cost"],
-            "grossMargin": summary["grossMargin"],
-            "signedSensitivity": summary["signedSensitivity"],
-            "adverse": summary["adverse"],
-            "severity": summary["adverse"] / summary["contracted"] * 100 if kind == "delivered" and summary["contracted"] else None,
-            "zeroMarginSurcharge": max(summary["cost"] - summary["recognized"], 0) if kind == "delivered" else None,
-            "benchmarkPreservingSurcharge": max(summary["signedSensitivity"], 0) if kind == "delivered" else None,
-            "insurance": summary["insurance"],
-            "penalty": summary["penalty"],
-            "insuranceBurden": summary["insuranceBurden"],
-            "delayAttribution": summary["delayAttribution"],
-            "difot": summary["difot"],
-            "difotHits": summary["difotHits"],
-            "difotDenominator": summary["difotDenominator"],
-            "delayDays": summary["delayDays"],
-            "delayPerShipment": summary["delayDays"] / summary["deliveredShipments"] if summary["deliveredShipments"] else None,
-            "heldAgeDays": summary["heldAgeDays"] if kind == "held" else None,
-            "heldRevenue": summary["contracted"] if kind == "held" else 0,
-            "flags": flags,
-        }
-        cell["action"], cell["owner"], cell["trigger"] = action_for_cell(cell)
-        cells.append(cell)
-    return sorted(cells, key=lambda item: (-item["adverse"], item["customer"], item["product"], item["route"]))
-
-
-def build_frontier(delivered_records: list[dict]) -> list[dict]:
-    groups = group_records(delivered_records, ("Product_Category", "routeLabel"))
+def build_route_evidence(delivered: list[dict]) -> list[dict]:
+    groups = group_records(delivered, ("Product_Category", "Route_Type"))
     by_product: dict[str, list[dict]] = defaultdict(list)
     for (product, route), records in groups.items():
-        summary = aggregate(records)
-        by_product[product].append(
-            {
-                "route": route,
-                "costPerTon": summary["costPerTon"],
-                "difot": summary["difot"],
-                "sample": summary["shipments"],
-                "interval": service_interval(summary["difotHits"], summary["difotDenominator"]),
-            }
-        )
-
-    frontier = []
+        by_product[product].append(_route_option(product, route, records))
+    output = []
     for product, options in sorted(by_product.items()):
-        best = None
+        dominance: list[tuple[dict, list[dict]]] = []
         for candidate in options:
-            dominates = [
-                other
-                for other in options
-                if other["route"] != candidate["route"]
-                and candidate["costPerTon"] <= other["costPerTon"]
-                and candidate["difot"] >= other["difot"]
-                and (candidate["costPerTon"] < other["costPerTon"] or candidate["difot"] > other["difot"])
-            ]
-            if dominates and (best is None or len(dominates) > len(best[1])):
-                best = (candidate, dominates)
-        if best:
-            preferred, dominated = best
-            compared = sorted(dominated, key=lambda item: (-item["costPerTon"], item["difot"]))[0]
-            status = "matched pilot hypothesis"
+            dominated = [other for other in options if other["route"] != candidate["route"] and candidate["costPerTon"] <= other["costPerTon"] and candidate["difot"] >= other["difot"] and (candidate["costPerTon"] < other["costPerTon"] or candidate["difot"] > other["difot"])]
+            if dominated:
+                dominance.append((candidate, dominated))
+        if dominance:
+            candidate, dominated = max(dominance, key=lambda item: (len(item[1]), -item[0]["costPerTon"], item[0]["route"]))
+            comparison = sorted(dominated, key=lambda item: (-item["costPerTon"], item["difot"], item["route"]))[0]
+            status, observed_dominance = "observed_pilot_candidate", True
         else:
-            preferred = min(options, key=lambda item: item["costPerTon"])
-            compared = next((item for item in options if item["route"] != preferred["route"]), None)
-            status = "no observed dominance; validate feasibility"
-        frontier.append(
-            {
-                "product": product,
-                "preferred": preferred["route"],
-                "compared": compared["route"] if compared else None,
-                "preferredCostPerTon": preferred["costPerTon"],
-                "comparedCostPerTon": compared["costPerTon"] if compared else None,
-                "preferredDifot": preferred["difot"],
-                "comparedDifot": compared["difot"] if compared else None,
-                "preferredInterval": preferred["interval"],
-                "comparedInterval": compared["interval"] if compared else None,
-                "preferredSample": preferred["sample"],
-                "comparedSample": compared["sample"] if compared else None,
-                "status": status,
-            }
-        )
-    return frontier
+            candidate = min(options, key=lambda item: (item["costPerTon"], item["route"]))
+            comparison = next((item for item in options if item["route"] != candidate["route"]), None)
+            status, observed_dominance = "no_observed_dominance", False
+        output.append({
+            "id": f"product|{product}", "product": product, "candidateRoute": candidate["route"], "comparisonRoute": comparison["route"] if comparison else None,
+            "candidate": candidate, "comparison": comparison, "options": sorted(options, key=lambda item: item["route"]), "status": status, "observedDominance": observed_dominance,
+            "causalClaim": False, "capacityKnown": False, "liveQuoteKnown": False, "rolloutApproved": False, "approvalGates": list(ROUTE_PILOT_GATES) if observed_dominance else [], "evidenceLevel": "historical_derived",
+            "limitations": ["Product-matched observational comparison only.", "Historical tonnes are not available capacity.", "Live quote, feasibility, insurance and service approvals are missing."],
+        })
+    return output
 
 
-def concentration_metrics(records: list[dict], key: str, field: str) -> dict:
-    totals: dict[str, float] = defaultdict(float)
-    for record in records:
-        totals[record[key]] += max(value(record, field), 0)
-    total = sum(totals.values())
-    shares = [amount / total for amount in totals.values()] if total else []
+def _gate_names_for(postures: list[str], operational_options: list[str], universe: str) -> list[str]:
+    gates: list[str] = []
+    if "protect_relationship" in postures:
+        gates.append("APPROVING_OWNER")
+    if "renegotiate_price_or_terms" in postures:
+        gates.extend(COMMERCIAL_GATES)
+    if "freeze_repeat_commitment_until_gate_clears" in postures:
+        gates.extend([*ROUTE_PILOT_GATES, "CUSTOMER_RECOVERY_TERM"])
+    if "route_pilot" in postures or "matched_route_pilot_candidate" in operational_options:
+        gates.extend(ROUTE_PILOT_GATES)
+    if "insurance_structure_review" in postures:
+        gates.extend(["INSURANCE_TERMS", "EFFECTIVE_DATE", "APPROVING_OWNER"])
+    if universe == "held_open":
+        gates.extend(HELD_RELEASE_GATES)
+    return list(dict.fromkeys(gates))
+
+
+def _primary_owner(postures: list[str], universe: str) -> str:
+    if "renegotiate_price_or_terms" in postures or "protect_relationship" in postures:
+        return "Commercial Head"
+    if "insurance_structure_review" in postures:
+        return "Risk/Insurance Lead"
+    if "route_pilot" in postures or universe == "held_open":
+        return "Supply Chain Head"
+    return "Operations Head"
+
+
+def _release_condition(postures: list[str], universe: str) -> str:
+    if "freeze_repeat_commitment_until_gate_clears" in postures:
+        return "Approved prospective unit economics are positive, route feasibility is confirmed and the approved service requirement is met."
+    if "renegotiate_price_or_terms" in postures:
+        return "Approved customer terms produce positive prospective unit economics."
+    if "route_pilot" in postures:
+        return "Live quote, feasibility, capacity, insurance and service approvals are recorded by the named owners."
+    if "insurance_structure_review" in postures:
+        return "Approved insurance terms and retained-loss treatment are recorded by Risk/Insurance."
+    if universe == "held_open":
+        return "Release requires approved quote, feasibility, capacity, insurance, service and commercial terms."
+    return "No forward release condition is proposed from this historical cell alone."
+
+
+def build_decision_cells(shock: list[dict], route_evidence: list[dict], customer_exposure: list[dict]) -> list[dict]:
+    groups = group_records(shock, ("Customer_Name", "Product_Category", "Route_Type"))
+    summaries = {key: aggregate(value) for key, value in groups.items()}
+    insurance_peers = [summary["insuranceBurdenPct"] for key, summary in summaries.items() if key[2] != "Held in Gulf" and summary["insuranceBurdenPct"] is not None]
+    pilot_by_product = {row["product"]: row for row in route_evidence if row["observedDominance"]}
+    protected_customers = {row["name"] for row in customer_exposure[:3]}
+    cells = []
+    for (customer, product, route), records in groups.items():
+        summary, universe = summaries[(customer, product, route)], record_universe(records[0])
+        is_delivered = universe == "post_blockade_delivered"
+        insurance_rank = peer_percentile(insurance_peers, summary["insuranceBurdenPct"]) if is_delivered else None
+        business_problems: list[str] = []
+        postures: list[str] = []
+        posture_basis: dict[str, str] = {}
+        operational_options: list[str] = []
+        if is_delivered:
+            if summary["historicalContribution"] < 0:
+                business_problems.append("historical_contribution_negative")
+                postures.extend(["renegotiate_price_or_terms", "freeze_repeat_commitment_until_gate_clears"])
+            if summary["positiveSensitivity"] > 0:
+                business_problems.append("route_cost_above_product_benchmark")
+            if summary["difotHits"] < summary["difotDenominator"]:
+                business_problems.append("observed_service_misses")
+            if insurance_rank is not None and insurance_rank >= 75:
+                business_problems.append("insurance_review_candidate")
+                postures.append("insurance_structure_review")
+            if customer in protected_customers:
+                postures.append("protect_relationship")
+                posture_basis["protect_relationship"] = "board_curated_from_exposure_pareto"
+            if product in pilot_by_product:
+                business_problems.append("observed_route_frontier_candidate")
+                operational_options.append("matched_route_pilot_candidate")
+                postures.append("route_pilot")
+        else:
+            business_problems.extend(["revenue_unrecognized", "delivery_outcome_open"])
+            if summary["contractedRevenue"] - summary["totalCost"] < 0:
+                business_problems.append("full_life_underwater_before_future_cost")
+            postures.append("held_triage")
+            if product in pilot_by_product:
+                business_problems.append("observed_route_frontier_candidate")
+                operational_options.append("matched_route_pilot_candidate")
+        if not postures:
+            postures.append("review_historical_evidence")
+        gates = _gate_names_for(postures, operational_options, universe)
+        decision_status = "blocked_missing_input" if gates else ("conditional" if operational_options else "actionable_historical")
+        is_delivered = universe == "post_blockade_delivered"
+        cells.append({
+            "id": f"{customer}|{product}|{route}", "customer": customer, "product": product, "routeOrStatus": route, "universe": universe,
+            "sample": summary["shipments"], "tonnes": summary["tonnes"], "contractedRevenue": summary["contractedRevenue"], "recognizedRevenue": summary["recognizedRevenue"], "totalCost": summary["totalCost"], "historicalContribution": summary["historicalContribution"], "signedSensitivity": summary["signedSensitivity"], "positiveSensitivity": summary["positiveSensitivity"], "favourableOffset": summary["favourableOffset"],
+            "sensitivitySeverityPct": summary["positiveSensitivity"] / summary["contractedRevenue"] * 100 if is_delivered and summary["contractedRevenue"] else None,
+            "zeroMarginSurcharge": max(summary["totalCost"] - summary["recognizedRevenue"], 0) if is_delivered else None, "benchmarkPreservingSurcharge": max(summary["signedSensitivity"], 0) if is_delivered else None,
+            "difot": summary["difot"] if is_delivered else None, "difotHits": summary["difotHits"] if is_delivered else None, "difotDenominator": summary["difotDenominator"] if is_delivered else None, "serviceInterval": service_interval(summary["difotHits"], summary["difotDenominator"]) if is_delivered else None,
+            "heldRevenue": summary["contractedRevenue"] if not is_delivered else 0.0, "heldAgeDays": summary["heldAgeDays"] if not is_delivered else None, "accruedCost": summary["totalCost"] if not is_delivered else None, "fullLifePreFutureMargin": summary["contractedRevenue"] - summary["totalCost"] if not is_delivered else None,
+            "insuranceBurdenPct": summary["insuranceBurdenPct"], "penaltyAttributionPct": summary["penaltyAttributionPct"], "deliveredDelayDays": summary["deliveredDelayDays"] if is_delivered else None,
+            "businessProblems": business_problems, "recommendedPostures": list(dict.fromkeys(postures)), "postureBasis": posture_basis, "operationalOptions": operational_options, "approvalGates": gates, "approvalGateDetails": [APPROVAL_GATES[name] for name in gates], "ownerRole": _primary_owner(postures, universe), "releaseCondition": _release_condition(postures, universe), "insurancePeerPercentile": insurance_rank, "evidenceLevel": "historical_derived", "decisionStatus": decision_status,
+        })
+    return sorted(cells, key=lambda item: (-item["positiveSensitivity"], -item["heldRevenue"], item["customer"], item["product"], item["routeOrStatus"]))
+
+
+def build_decision_register(cells: list[dict], customer_exposure: list[dict]) -> list[dict]:
+    customer_ids = {row["name"]: row["id"] for row in customer_exposure}
+    register = []
+    for index, cell in enumerate(cells, 1):
+        postures = list(cell["recommendedPostures"])
+        if "matched_route_pilot_candidate" in cell["operationalOptions"] and "route_pilot" not in postures:
+            postures.append("route_pilot")
+        register.append({
+            "decisionId": f"D-{index:03d}", "scope": {"customer": cell["customer"], "product": cell["product"], "routeOrStatus": cell["routeOrStatus"]}, "cellId": cell["id"],
+            "exposure": {"positiveSensitivity": cell["positiveSensitivity"], "historicalContribution": cell["historicalContribution"], "heldRevenue": cell["heldRevenue"]}, "businessProblem": list(cell["businessProblems"]), "posture": postures, "ownerRole": cell["ownerRole"],
+            "horizon": {"value": "Immediate" if cell["universe"] == "held_open" or cell["historicalContribution"] < 0 else "Review", "basis": "proposal"}, "activationEvidence": list(cell["businessProblems"]), "postureBasis": dict(cell["postureBasis"]), "approvalGates": list(cell["approvalGates"]), "approvalGateDetails": list(cell["approvalGateDetails"]), "releaseCondition": cell["releaseCondition"], "evidenceLinks": [cell["id"], customer_ids.get(cell["customer"])], "evidenceLevel": "proposal", "decisionStatus": cell["decisionStatus"],
+        })
+    return register
+
+
+def _composite_rows(records: list[dict], dimension: str) -> list[dict]:
+    rows = _exposure_rows(records, dimension)
+    concentration_values = [row["fullContractedRevenue"] for row in rows]
+    total_concentration = sum(concentration_values)
+    for row in rows:
+        summary = aggregate([record for record in records if record.get(dimension) == row["name"]])
+        row["M"] = summary["positiveSensitivity"] / summary["contractedRevenue"] * 100 if summary["contractedRevenue"] else 0
+        row["I"] = summary["insuranceBurdenPct"] or 0
+        row["D"] = summary["penaltyAttributionPct"] or 0
+        row["C"] = row["fullContractedRevenue"] / total_concentration * 100 if total_concentration else 0
+    for component in ("M", "I", "D", "C"):
+        values = [row[component] for row in rows]
+        for row in rows:
+            row[component] = peer_percentile(values, row[component]) or 0
+    for row in rows:
+        row["compositeScore"] = 0.45 * row["M"] + 0.15 * row["I"] + 0.20 * row["D"] + 0.20 * row["C"]
+    return sorted(rows, key=lambda row: (-row["compositeScore"], -row["positiveSensitivity"], row["name"]))
+
+
+def build_composite_diagnostic(shock: list[dict]) -> dict:
+    return {"compositeScore": {"decisionUse": False, "basis": "judgmental_policy_weights", "warning": "Do not use this score to select board priorities or exit decisions.", "weights": {"M": 0.45, "I": 0.15, "D": 0.20, "C": 0.20}, "components": {"M": "positive sensitivity / contracted revenue", "I": "insurance / cargo value", "D": "penalty / total cost", "C": "contracted-revenue concentration proxy"}, "rows": {"customers": _composite_rows(shock, "Customer_Name"), "products": _composite_rows(shock, "Product_Category")}, "evidenceType": "DERIVED", "population": "post_blockade_shock", "numerator": "rank-normalized diagnostic components", "denominator": "within-dimension peers", "limitations": ["Policy weights are judgmental.", "Dollar exposure and hard evidence flags remain the primary priority basis."]}}
+
+
+def _route_rows(records: list[dict]) -> list[dict]:
+    groups, shock = group_records(records, ("Route_Type",)), [record for record in records if record_universe(record) != "direct_reference"]
+    shock_groups = group_records(shock, ("Route_Type",))
+    total_positive = sum(max(number(record, "Route_Margin_Sensitivity_USD"), 0) for record in shock)
+    rows = []
+    for route in ROUTE_ORDER:
+        route_records = groups.get((route,), [])
+        if not route_records:
+            continue
+        summary, universe = aggregate(route_records), record_universe(route_records[0])
+        shock_summary = aggregate(shock_groups.get((route,), [])) if route != "Direct (Pre-Blockade)" else None
+        rows.append({
+            "id": f"route|{route}", "routeOrStatus": route, "universe": universe, "sample": summary["shipments"], "tonnes": summary["tonnes"], "contractedRevenue": summary["contractedRevenue"], "recognizedRevenue": summary["recognizedRevenue"], "totalCost": summary["totalCost"], "historicalContribution": summary["historicalContribution"], "costPerTon": summary["costPerTon"], "positiveSensitivity": shock_summary["positiveSensitivity"] if shock_summary else None, "signedSensitivity": shock_summary["signedSensitivity"] if shock_summary else None, "favourableOffset": shock_summary["favourableOffset"] if shock_summary else None, "exposureSharePct": shock_summary["positiveSensitivity"] / total_positive * 100 if shock_summary and total_positive else None,
+            "difot": summary["difot"] if universe != "held_open" else None, "difotHits": summary["difotHits"] if universe != "held_open" else None, "difotDenominator": summary["difotDenominator"] if universe != "held_open" else None, "serviceInterval": service_interval(summary["difotHits"], summary["difotDenominator"]) if universe != "held_open" else None, "deliveredDelayDays": summary["deliveredDelayDays"] if universe != "held_open" else None, "heldAgeDays": summary["heldAgeDays"] if universe == "held_open" else None, "averageActualTransitDays": summary["averageActualTransitDays"] if universe != "held_open" else None, "insuranceBurdenPct": summary["insuranceBurdenPct"], "penaltyAttributionPct": summary["penaltyAttributionPct"], "evidenceLevel": "historical_derived",
+        })
+    return rows
+
+
+def _concentration_diagnostics(records: list[dict], dimension: str, sensitivity: bool = False) -> dict:
+    groups = group_records(records, (dimension,))
+    values = []
+    for (member,), group in groups.items():
+        amount = sum(max(number(record, "Route_Margin_Sensitivity_USD"), 0) for record in group) if sensitivity else sum(number(record, "Contracted_Freight_Revenue_USD") for record in group)
+        values.append((member, amount))
+    total = sum(amount for _, amount in values)
+    shares = [amount / total for _, amount in values] if total else []
     hhi = sum(share * share for share in shares)
     return {"hhi": hhi, "effectiveNumber": 1 / hhi if hhi else None}
 
 
-def route_is_feasible(record: dict, route_input: dict) -> bool:
-    return record["Cargo_Type"] in route_input.get("cargoTypes", [])
-
-
-def route_unit_economics(record: dict, route_input: dict, inputs: dict) -> dict:
-    tonnes = max(value(record, "Cargo_Weight_Tons"), 1.0)
-    revenue_per_ton = value(record, "Contracted_Freight_Revenue_USD") / tonnes
-    recoverable_per_ton = max(float(route_input["recoverableSurchargePerTon"]), 0) * inputs["recoveryRate"]
-    freight_per_ton = route_input["costPerTon"] * inputs["costMultiplier"]
-    insurance_per_ton = (
-        value(record, "Cargo_Value_USD")
-        / tonnes
-        * route_input["insuranceRate"]
-        * inputs["insuranceMultiplier"]
-    )
-    future_penalty_per_ton = route_input["expectedFuturePenaltyPerTon"] * inputs["penaltyMultiplier"]
-    service_bound = min(max(route_input["serviceLowerBound"] * inputs["serviceMultiplier"], 0), 1)
-    failure_per_ton = route_input["failureCostPerTon"] * (1 - service_bound)
-    return {
-        "unitContribution": (
-            revenue_per_ton
-            + recoverable_per_ton
-            - freight_per_ton
-            - insurance_per_ton
-            - future_penalty_per_ton
-            - failure_per_ton
-        ),
-        "freight": freight_per_ton,
-        "insurance": insurance_per_ton,
-        "futurePenalty": future_penalty_per_ton,
-        "failureCost": failure_per_ton,
-        "recoverableSurcharge": recoverable_per_ton,
-    }
-
-
-def constrained_forward_ledger(held_records: list[dict], inputs: dict, route_inputs: dict) -> dict:
-    """Allocate the open queue against explicit route inputs and conserve flow."""
-    inflow_multiplier = max(inputs["heldInflowMultiplier"], 0)
-    demand = [(record, 1.0, "opening") for record in held_records]
-    demand.extend((record, inflow_multiplier, "inflow") for record in held_records)
-    opening_tonnes = sum(value(record, "Cargo_Weight_Tons") for record in held_records)
-    opening_revenue = sum(value(record, "Contracted_Freight_Revenue_USD") for record in held_records)
-    inflow_tonnes = opening_tonnes * inflow_multiplier
-    inflow_revenue = opening_revenue * inflow_multiplier
-    queue_tonnes = opening_tonnes + inflow_tonnes
-    queue_revenue = opening_revenue + inflow_revenue
-    clear_target_tonnes = queue_tonnes * min(max(inputs["clearRate"], 0), 1)
-    remaining_target = clear_target_tonnes
-    capacities = {
-        route: max(float(route_input.get("capacityTonnes") or 0), 0)
-        for route, route_input in route_inputs.items()
-    }
-    available_capacity = sum(
-        capacity
-        for route, capacity in capacities.items()
-        if route not in inputs["unavailableRoutes"]
-    )
-    allocations = {
-        route: {
-            "route": route,
-            "allocatedTonnes": 0.0,
-            "capacityTonnes": capacities[route],
-            "clearedShipments": 0.0,
-            "forwardContribution": 0.0,
-            "serviceLowerBound": min(
-                max(float(route_inputs[route]["serviceLowerBound"]) * inputs["serviceMultiplier"], 0),
-                1,
-            ),
-        }
-        for route in route_inputs
-    }
-    cleared_revenue = 0.0
-    cleared_shipments = 0.0
-    forward_contribution = 0.0
-    forward_cost = 0.0
-    recovered_surcharge = 0.0
-    expected_failure_cost = 0.0
-
-    demand.sort(
-        key=lambda item: (
-            -(value(item[0], "Penalty_Cost_USD") / max(value(item[0], "Delay_Days"), 1)),
-            -value(item[0], "Contracted_Freight_Revenue_USD"),
-            item[0]["Shipment_ID"],
-            item[2],
-        )
-    )
-    for record, scale, _source in demand:
-        quantity = value(record, "Cargo_Weight_Tons") * scale
-        if quantity <= 0 or remaining_target <= 0:
-            continue
-        while quantity > 1e-9 and remaining_target > 1e-9:
-            options = [
-                (route, route_input, route_unit_economics(record, route_input, inputs))
-                for route, route_input in route_inputs.items()
-                if route not in inputs["unavailableRoutes"]
-                and capacities.get(route, 0) > 1e-9
-                and route_is_feasible(record, route_input)
-            ]
-            if not options:
-                break
-            route, _route_input, economics = max(options, key=lambda item: item[2]["unitContribution"])
-            amount = min(quantity, remaining_target, capacities[route])
-            share_of_record = amount / max(value(record, "Cargo_Weight_Tons"), 1.0)
-            allocation = allocations[route]
-            allocation["allocatedTonnes"] += amount
-            allocation["clearedShipments"] += share_of_record
-            allocation["forwardContribution"] += amount * economics["unitContribution"]
-            capacities[route] -= amount
-            quantity -= amount
-            remaining_target -= amount
-            cleared_shipments += share_of_record
-            cleared_revenue += value(record, "Contracted_Freight_Revenue_USD") * share_of_record
-            contribution = amount * economics["unitContribution"]
-            forward_contribution += contribution
-            forward_cost += amount * (
-                economics["freight"] + economics["insurance"] + economics["futurePenalty"]
-            )
-            recovered_surcharge += amount * economics["recoverableSurcharge"]
-            expected_failure_cost += amount * economics["failureCost"]
-
-    cleared_tonnes = sum(item["allocatedTonnes"] for item in allocations.values())
-    ending_held_tonnes = queue_tonnes - cleared_tonnes
-    ending_held_revenue = queue_revenue - cleared_revenue
-    for allocation in allocations.values():
-        allocation["remainingCapacityTonnes"] = allocation["capacityTonnes"] - allocation["allocatedTonnes"]
-        allocation["share"] = allocation["allocatedTonnes"] / cleared_tonnes * 100 if cleared_tonnes else 0
-    forward_difot = (
-        sum(item["allocatedTonnes"] * item["serviceLowerBound"] for item in allocations.values())
-        / cleared_tonnes
-        * 100
-        if cleared_tonnes
-        else None
-    )
-    flow = {
-        "beginningHeldTonnes": opening_tonnes,
-        "inflowTonnes": inflow_tonnes,
-        "clearedTonnes": cleared_tonnes,
-        "cancelledTonnes": 0.0,
-        "endingHeldTonnes": ending_held_tonnes,
-        "differenceTonnes": opening_tonnes + inflow_tonnes - cleared_tonnes - ending_held_tonnes,
-    }
-    return {
-        "beginningHeldRevenue": opening_revenue,
-        "inflowRevenue": inflow_revenue,
-        "clearedRevenue": cleared_revenue,
-        "endingHeldRevenue": ending_held_revenue,
-        "beginningHeldTonnes": opening_tonnes,
-        "inflowTonnes": inflow_tonnes,
-        "clearTargetTonnes": clear_target_tonnes,
-        "clearedTonnes": cleared_tonnes,
-        "endingHeldTonnes": ending_held_tonnes,
-        "clearedShipments": cleared_shipments,
-        "endingHeldShipments": len(held_records) * (1 + inflow_multiplier) - cleared_shipments,
-        "unservedTonnes": ending_held_tonnes,
-        "totalContribution": forward_contribution,
-        "forwardContribution": forward_contribution,
-        "forwardCost": forward_cost,
-        "recoveredSurcharge": recovered_surcharge,
-        "expectedFailureCost": expected_failure_cost,
-        "difot": forward_difot,
-        "availableRouteTonnes": available_capacity,
-        "optionUtilization": cleared_tonnes / available_capacity * 100 if available_capacity else None,
-        "referenceRevenueIncluded": 0.0,
-        "flow": flow,
-        "routeAllocation": list(allocations.values()),
-        "capacityRemaining": capacities,
-    }
-
-
-def scenario_outputs(
-    scenarios: list[dict],
-    held_records: list[dict],
-    source_gate: dict,
-    forward_status: dict,
-    forward_payload: dict,
-) -> list[dict]:
-    route_inputs = forward_payload.get("routes", {}) if forward_status["ready"] else {}
-    decision_ready = source_gate["pass"] and forward_status["ready"]
-    outputs = []
-    for definition in scenarios:
-        inputs = definition["inputs"]
-        gate_reasons = []
-        if not source_gate["pass"]:
-            gate_reasons.append(f"{APPROVED_RAW_ROWS}-row source gate is unverified")
-        if not forward_status["ready"]:
-            gate_reasons.append("owner-supplied forward inputs are not approved")
-        if not decision_ready:
-            outputs.append(
-                {
-                    "name": definition["name"],
-                    "tone": definition["tone"],
-                    "detail": definition["detail"],
-                    "inputs": inputs,
-                    "decisionReady": False,
-                    "outputs": {"locked": True},
-                    "diagnostics": None,
-                    "flow": None,
-                    "decisionGate": gate_reasons,
-                    "action": definition["action"],
-                    "assumptionSource": "No approved forward inputs; scenario outputs withheld.",
-                    "inputOwner": "Operations / Network Planning · Procurement · Commercial · Finance",
-                }
-            )
-            continue
-
-        ledger = constrained_forward_ledger(held_records, inputs, route_inputs)
-        triggers = []
-        if ledger["endingHeldRevenue"] > ledger["beginningHeldRevenue"] * 0.05:
-            triggers.append("Ending Held revenue remains open")
-        if ledger["endingHeldTonnes"] > 0:
-            triggers.append("Backlog remains after constrained allocation")
-        outputs.append(
-            {
-                "name": definition["name"],
-                "tone": definition["tone"],
-                "detail": definition["detail"],
-                "inputs": inputs,
-                "decisionReady": decision_ready,
-                "outputs": {
-                    "locked": False,
-                    "totalContribution": ledger["totalContribution"],
-                    "beginningHeldRevenue": ledger["beginningHeldRevenue"],
-                    "inflowRevenue": ledger["inflowRevenue"],
-                    "clearedRevenue": ledger["clearedRevenue"],
-                    "endingHeldRevenue": ledger["endingHeldRevenue"],
-                    "beginningHeldTonnes": ledger["beginningHeldTonnes"],
-                    "inflowTonnes": ledger["inflowTonnes"],
-                    "clearedTonnes": ledger["clearedTonnes"],
-                    "endingHeldTonnes": ledger["endingHeldTonnes"],
-                    "flowBalanced": abs(ledger["flow"]["differenceTonnes"]) < 0.01,
-                    "routeAllocation": ledger["routeAllocation"],
-                    "difot": ledger["difot"],
-                    "triggerCrossings": triggers,
-                },
-                "diagnostics": ledger,
-                "flow": ledger["flow"],
-                "decisionGate": gate_reasons,
-                "action": definition["action"],
-                "assumptionSource": forward_payload.get("source", "approved forward inputs"),
-                "inputOwner": "Operations / Network Planning · Procurement · Commercial · Finance",
-            }
-        )
-    return outputs
-
-
-def build_data(
-    records: list[dict],
-    source_info: dict,
-    duplicate_info: dict,
-    source_manifest: dict,
-    forward_payload: dict,
-) -> tuple[dict, dict]:
-    for record in records:
-        record["kind"] = classify(record)
-        record["routeLabel"] = ROUTE_LABELS.get(record["Route_Type"], record["Route_Type"])
-
-    canonical_rows = len(records)
-    source_gate = source_gate_status(source_info, duplicate_info, canonical_rows, source_manifest)
-    forward_status = forward_input_status(forward_payload)
-    direct = [record for record in records if record["kind"] == "reference"]
-    shock = [record for record in records if record["kind"] != "reference"]
-    delivered = [record for record in records if record["kind"] == "delivered"]
-    held = [record for record in records if record["kind"] == "held"]
-    portfolio = aggregate(records)
-    shock_summary = aggregate(shock)
-    delivered_summary = aggregate(delivered)
-    held_summary = aggregate(held)
-    direct_summary = aggregate(direct)
-    full_revenue = portfolio["contracted"]
-
-    controls = {
-        "rawRows": source_info["sourceRows"],
-        "canonicalRows": canonical_rows,
-        "statedRows": STATED_ROWS,
-        "approvedRawRows": APPROVED_RAW_ROWS,
-        "directRows": len(direct),
-        "shockRows": len(shock),
-        "deliveredRows": len(delivered),
-        "heldRows": len(held),
-        "contractedRevenue": full_revenue,
-        "recognizedRevenue": portfolio["recognized"],
-        "heldRevenue": held_summary["contracted"],
-        "totalCost": portfolio["cost"],
-        "grossMargin": portfolio["grossMargin"],
-        "shockSignedSensitivity": shock_summary["signedSensitivity"],
-        "signedSensitivity": shock_summary["signedSensitivity"],
-        "adverseSensitivity": shock_summary["adverse"],
-        "deliveredSignedSensitivity": delivered_summary["signedSensitivity"],
-        "deliveredAdverseSensitivity": delivered_summary["adverse"],
-        "deliveredMargin": delivered_summary["grossMargin"],
-        "deliveredBenchmarkContribution": delivered_summary["recognized"] - (delivered_summary["cost"] - delivered_summary["signedSensitivity"]),
-        "deliveredDirectEquivalentCost": delivered_summary["cost"] - delivered_summary["signedSensitivity"],
-        "favourableOffset": abs(sum(min(value(record, "Route_Margin_Sensitivity_USD"), 0) for record in shock)),
-        "heldCost": held_summary["cost"],
-        "heldPenalty": held_summary["penalty"],
-        "heldInsurance": held_summary["insurance"],
-        "heldTonnes": held_summary["tonnes"],
-        "deliveredTonnes": delivered_summary["tonnes"],
-        "heldDays": held_summary["heldAgeDays"],
-        "heldMedianDays": statistics.median([value(record, "Delay_Days") for record in held]),
-        "heldP90Days": percentile([value(record, "Delay_Days") for record in held], 0.9),
-        "heldMaxDays": max(value(record, "Delay_Days") for record in held),
-        "directDIFOT": direct_summary["difot"],
-        "directDIFOTHits": direct_summary["difotHits"],
-        "postDIFOT": delivered_summary["difot"],
-        "deliveredDIFOTHits": delivered_summary["difotHits"],
-        "totalTonnes": portfolio["tonnes"],
-        "deliveredCost": delivered_summary["cost"],
-        "deliveredInsurance": delivered_summary["insurance"],
-        "deliveredPenalty": delivered_summary["penalty"],
-    }
-
-    route_groups = group_records(records, ("routeLabel",))
-    route_order = ["Direct / benchmark", "Cape of Good Hope", "Pipeline Bypass", "Overland Truck", "Air Bridge", "Held in Gulf"]
-    route_rows = []
-    route_summaries = {}
-    for route in route_order:
-        route_records = route_groups.get((route,), [])
-        if not route_records:
-            continue
-        summary = aggregate(route_records)
-        route_summaries[route] = summary
-        kind = route_records[0]["kind"]
-        route_rows.append(
-            {
-                "name": route,
-                "kind": kind,
-                "shipments": summary["shipments"],
-                "tonnes": summary["tonnes"],
-                "deliveredShipments": summary["deliveredShipments"],
-                "difot": summary["difot"],
-                "difotHits": summary["difotHits"],
-                "difotInterval": service_interval(summary["difotHits"], summary["difotDenominator"]),
-                "costPerTon": summary["costPerTon"],
-                "contracted": summary["contracted"],
-                "recognized": summary["recognized"],
-                "cost": summary["cost"],
-                "adverse": summary["adverse"] if kind == "delivered" else None,
-                "signedSensitivity": summary["signedSensitivity"] if kind == "delivered" else None,
-                "delayDays": summary["delayDays"] if kind == "delivered" else None,
-                "delayPerShipment": summary["delayDays"] / summary["deliveredShipments"] if summary["deliveredShipments"] else None,
-                "heldAgeDays": summary["heldAgeDays"] if kind == "held" else None,
-                "heldRevenue": summary["contracted"] if kind == "held" else None,
-                "heldCost": summary["cost"] if kind == "held" else None,
-                "insuranceBurden": summary["insuranceBurden"],
-                "plannedDays": summary["plannedDays"] if kind == "delivered" else None,
-                "actualDays": summary["actualDays"] if kind == "delivered" else None,
-            }
-        )
-
-    shock_customer_groups = group_records(shock, ("Customer_Name",))
-    customer_full_groups = group_records(records, ("Customer_Name",))
-    customer_shares = {
-        name: aggregate(group)["contracted"] / full_revenue * 100
-        for (name,), group in customer_full_groups.items()
-    }
-
-    def weighted_customer_share(group: list[dict], summary: dict) -> float:
-        if not summary["contracted"]:
-            return 0
-        return sum(
-            value(record, "Contracted_Freight_Revenue_USD") * customer_shares[record["Customer_Name"]]
-            for record in group
-        ) / summary["contracted"]
-
-    customer_rows = []
-    customer_summaries = {}
-    for (name,), group in shock_customer_groups.items():
-        summary = aggregate(group)
-        full_summary = aggregate(customer_full_groups[(name,)])
-        customer_summaries[name] = (group, summary)
-        customer_rows.append(
-            {
-                "name": name,
-                "fullShare": full_summary["contracted"] / full_revenue * 100,
-                "contracted": full_summary["contracted"],
-                "shockContracted": summary["contracted"],
-                "shipments": summary["shipments"],
-                "shockShipments": summary["shipments"],
-                "deliveredShipments": summary["deliveredShipments"],
-                "heldShipments": summary["heldShipments"],
-                "deliveredMisses": summary["difotDenominator"] - summary["difotHits"],
-                "adverse": summary["adverse"],
-                "signedSensitivity": summary["signedSensitivity"],
-                "severity": summary["adverse"] / summary["contracted"] * 100 if summary["contracted"] else None,
-                "held": sum(value(record, "Contracted_Freight_Revenue_USD") for record in group if record["kind"] == "held"),
-                "difot": summary["difot"],
-                "grossMargin": summary["grossMargin"],
-            }
-        )
-    customer_rows.sort(key=lambda item: (-item["adverse"], item["name"]))
-
-    product_groups = group_records(shock, ("Product_Category",))
-    product_rows = []
-    product_summaries = {}
-    for (name,), group in product_groups.items():
-        summary = aggregate(group)
-        product_summaries[name] = (group, summary)
-        product_rows.append(
-            {
-                "name": name,
-                "shipments": summary["shipments"],
-                "contracted": summary["contracted"],
-                "adverse": summary["adverse"],
-                "signedSensitivity": summary["signedSensitivity"],
-                "severity": summary["adverse"] / summary["contracted"] * 100 if summary["contracted"] else None,
-                "difot": summary["difot"],
-                "grossMargin": summary["grossMargin"],
-            }
-        )
-    product_rows.sort(key=lambda item: (-item["adverse"], item["name"]))
-
-    cells = build_cells(shock)
-    cell_rows = cells
-
-    customer_adverse = [item["adverse"] for item in customer_rows]
-    customer_top_decile = percentile(customer_adverse, 0.9)
-    product_adverse = [item["adverse"] for item in product_rows]
-    product_top_decile = percentile(product_adverse, 0.9)
-    route_score_groups = {
-        row["name"]: (
-            route_groups[(row["name"],)],
-            route_summaries[row["name"]],
-            weighted_customer_share(route_groups[(row["name"],)], route_summaries[row["name"]]),
-        )
-        for row in route_rows
-        if row["kind"] != "reference"
-    }
-    customer_score_groups = {
-        name: (customer_summaries[name][0], customer_summaries[name][1], customer_shares[name])
-        for name in customer_summaries
-    }
-    product_score_groups = {
-        name: (
-            product_summaries[name][0],
-            product_summaries[name][1],
-            weighted_customer_share(product_summaries[name][0], product_summaries[name][1]),
-        )
-        for name in product_summaries
-    }
-    score_rows_output = {
-        "Customer": score_rows(customer_score_groups, {name: customer_top_decile for name in customer_summaries}),
-        "Route": score_rows(route_score_groups, {name: percentile([summary["adverse"] for _, summary, _ in route_score_groups.values()], 0.9) for name in route_score_groups}),
-        "Product": score_rows(product_score_groups, {name: product_top_decile for name in product_summaries}),
-    }
-    score_robustness = {name: robustness_lattice(rows) for name, rows in score_rows_output.items()}
-    frontier = build_frontier(delivered)
-    concentration = {
-        "customerRevenue": concentration_metrics(records, "Customer_Name", "Contracted_Freight_Revenue_USD"),
-        "routeSensitivity": concentration_metrics(shock, "routeLabel", "Route_Margin_Sensitivity_USD"),
-        "productSensitivity": concentration_metrics(shock, "Product_Category", "Route_Margin_Sensitivity_USD"),
-    }
-
-    held_queue = []
-    for record in held:
-        days = value(record, "Delay_Days")
-        product = record["Product_Category"]
-        cargo = record["Cargo_Type"]
-        if product in {"High-Tech Components", "Pharmaceuticals"}:
-            option = "Overland first / Air exception"
-        elif cargo.startswith("Bulk"):
-            option = "Cape / Pipeline validation"
-        else:
-            option = "Cape / Overland validation"
-        held_queue.append(
-            {
-                "id": record["Shipment_ID"],
-                "customer": record["Customer_Name"],
-                "product": product,
-                "days": days,
-                "penalty": value(record, "Penalty_Cost_USD"),
-                "penaltyPerDay": value(record, "Penalty_Cost_USD") / days if days else None,
-                "revenue": value(record, "Contracted_Freight_Revenue_USD"),
-                "cost": value(record, "Total_Cost_to_Serve_USD"),
-                "option": option,
-            }
-        )
-    held_queue.sort(key=lambda item: (-(item["penaltyPerDay"] or 0), -item["revenue"], item["id"]))
-
-    scenarios = scenario_outputs(
-        SCENARIO_DEFINITIONS,
-        held,
-        source_gate,
-        forward_status,
-        forward_payload,
-    )
+def build_dashboard(records: list[dict], source_info: dict, source_validation: dict | None = None) -> dict:
+    classified = classify_records(records)
+    direct, delivered, held = classified["direct_reference"], classified["post_blockade_delivered"], classified["held_open"]
+    shock = [*delivered, *held]
+    portfolio_summary, shock_summary = aggregate(records), aggregate(shock)
+    direct_summary, delivered_summary, held_summary = aggregate(direct), aggregate(delivered), aggregate(held)
+    customer_exposure = build_customer_exposure(shock, records)
+    product_exposure = build_product_exposure(shock)
+    route_evidence = build_route_evidence(delivered)
+    decision_cells = build_decision_cells(shock, route_evidence, customer_exposure)
+    financial_bridge, held_ledger = build_financial_bridge(delivered), build_held_ledger(held)
+    service = build_service_evidence(delivered, direct)
     metadata = {
-        "sourceFile": source_info["sourceFile"],
-        "sourceSheet": source_info["sheet"],
-        "sourceRows": canonical_rows,
-        "rawRows": source_info["sourceRows"],
-        "canonicalRows": canonical_rows,
-        "approvedRawRows": APPROVED_RAW_ROWS,
-        "caseStatedRows": STATED_ROWS,
-        "sourceSha256": source_info["sourceSha256"],
-        "sourceGate": source_gate,
-        "observationStart": min(record["Departure_Date"] for record in records),
-        "observationEnd": max(record["Departure_Date"] for record in records),
-        "asOf": max(record["Departure_Date"] for record in records),
-        "provisional": not source_gate["pass"] or not forward_status["ready"],
-        "duplicatePolicy": f"Validate {APPROVED_RAW_ROWS} approved source rows; collapse exact duplicate Shipment_ID rows once; fail on blank or conflicting IDs.",
+        "sourceFile": source_info["sourceFile"], "sourceSheet": source_info["sourceSheet"], "sourceRows": len(records), "uniqueShipmentIds": len({record.get("Shipment_ID") for record in records}), "observationStart": min(record["Departure_Date"] for record in records), "observationEnd": max(record["Departure_Date"] for record in records), "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"), "sourceStatus": "accepted" if not source_validation or source_validation["pass"] else "rejected", "sourceSha256": source_info.get("sourceSha256"),
     }
-
-    ledgers = {
-        "delivered": {
-            "recognizedRevenue": delivered_summary["recognized"],
-            "actualCost": delivered_summary["cost"],
-            "signedSensitivity": delivered_summary["signedSensitivity"],
-            "directEquivalentCost": delivered_summary["cost"] - delivered_summary["signedSensitivity"],
-            "benchmarkContribution": delivered_summary["recognized"] - (delivered_summary["cost"] - delivered_summary["signedSensitivity"]),
-            "observedContribution": delivered_summary["grossMargin"],
-        },
-        "held": {
-            "contractedRevenue": held_summary["contracted"],
-            "accruedCost": held_summary["cost"],
-            "penalties": held_summary["penalty"],
-            "insurance": held_summary["insurance"],
-            "tonnes": held_summary["tonnes"],
-            "daysStuck": held_summary["heldAgeDays"],
-        },
+    universes = {
+        "direct_reference": {"rows": len(direct), "use": "historical product-matched benchmark", "evidenceType": "FACT", "population": "direct_reference", "limitations": ["Not a forward quote or capacity assumption."]},
+        "post_blockade_delivered": {"rows": len(delivered), "use": "realized disruption economics and completed service", "evidenceType": "FACT", "population": "post_blockade_delivered", "limitations": ["Observed historical outcomes only."]},
+        "held_open": {"rows": len(held), "use": "undelivered revenue and accrued-cost ledger", "evidenceType": "FACT", "population": "held_open", "limitations": ["No completed service outcome or release schedule."]},
     }
-
+    portfolio = {
+        "shipments": portfolio_summary["shipments"], "tonnes": portfolio_summary["tonnes"], "contractedRevenue": portfolio_summary["contractedRevenue"], "recognizedRevenue": portfolio_summary["recognizedRevenue"], "heldContractedRevenue": held_summary["contractedRevenue"], "totalCost": portfolio_summary["totalCost"], "historicalContribution": portfolio_summary["historicalContribution"], "signedSensitivity": shock_summary["signedSensitivity"], "positiveSensitivity": shock_summary["positiveSensitivity"], "favourableOffset": shock_summary["favourableOffset"], "revenueIdentityDifference": portfolio_summary["contractedRevenue"] - portfolio_summary["recognizedRevenue"] - held_summary["contractedRevenue"], "directReference": direct_summary, "postBlockadeDelivered": delivered_summary, "heldOpen": held_summary, "evidenceType": "DERIVED", "population": "all accepted shipment records for portfolio; post_blockade_shock for route sensitivity", "numerator": "summed source monetary fields", "denominator": "accepted shipment records", "limitations": ["Historical contribution is not a forward forecast.", "Total cost already includes freight, fuel, insurance and penalty."],
+    }
+    methodology = {
+        "evidenceLabels": {"FACT": "Directly observed in the accepted workbook.", "DERIVED": "Calculated from accepted workbook fields using documented formulas.", "PROPOSAL": "A management posture or owner assignment, not an observed outcome.", "MISSING_INPUT": "Required for prospective execution and not supplied in the workbook."},
+        "financialBridge": {"evidenceType": "DERIVED", "population": "post_blockade_delivered", "numerator": "recognized revenue less cost with supplied signed sensitivity", "denominator": "delivered recognized revenue", "limitations": ["No future pricing or recovery is assumed."]},
+        "exposure": {"evidenceType": "DERIVED", "population": "post_blockade_shock", "numerator": "positive supplied Route_Margin_Sensitivity_USD", "denominator": "total positive shock sensitivity", "limitations": ["Positive sensitivity is route-cost exposure, not an accounting loss."]},
+        "service": {"evidenceType": "DERIVED", "population": "completed shipments only", "numerator": "DIFOT hits", "denominator": "completed shipments in the named universe", "limitations": ["Held shipments are excluded from DIFOT."]},
+        "heldLedger": {"evidenceType": "DERIVED", "population": "held_open", "numerator": "contracted revenue, accrued cost and Held age", "denominator": "Held shipment records", "limitations": ["Forward contribution is null until approved inputs are supplied."]},
+        "routeEvidence": {"evidenceType": "DERIVED", "population": "post_blockade_delivered grouped by product and route", "numerator": "observed cost/t and DIFOT comparison", "denominator": "product-matched observed route groups", "limitations": ["No causal, optimal, capacity-feasible or rollout-approved claim."]},
+        "decisionCells": {"evidenceType": "DERIVED", "population": "observed post-blockade customer × product × route/status cells", "numerator": "cell-level historical metrics and hard evidence flags", "denominator": "44 observed cells", "limitations": ["Prospective action remains conditional on named approval gates."]},
+        "decisionRegister": {"evidenceType": "PROPOSAL", "population": "decision cells", "numerator": "historical activation evidence", "denominator": "named decision cell", "limitations": ["No permanent exit or rollout approval is generated."]},
+        "approvalGates": list(APPROVAL_GATES.values()),
+        "limitations": ["The engine is historical evidence and decision gating, not a route optimizer.", "Historical route tonnage is not available capacity.", "Missing forward inputs are rendered as open rather than estimated."],
+    }
     dashboard = {
-        "metadata": metadata,
-        "controls": controls,
-        "ledgers": ledgers,
-        "forwardModel": {
-            "version": FORWARD_CONTRACT_VERSION,
-            "decisionReady": source_gate["pass"] and forward_status["ready"],
-            "sourceStatus": source_gate["status"],
-            "inputStatus": forward_status,
-            "requiredInputs": forward_status["requiredFields"],
-            "lockedOutputs": ["scenario contribution", "route allocation", "capacity/utilization", "scenario DIFOT"],
-        },
-        "routes": route_rows,
-        "customers": customer_rows,
-        "products": product_rows,
-        "cells": cell_rows,
-        "heldQueue": held_queue,
-        "scoreRows": score_rows_output,
-        "scoreRobustness": score_robustness,
-        "frontier": frontier,
-        "concentration": concentration,
-        "scenarios": scenarios,
-        "actions": [
-            {
-                "priority": "01",
-                "type": "Protect / change / stop",
-                "title": "Release the queue",
-                "owner": "COO",
-                "horizon": "0–30 days",
-                "trigger": "Any Held shipment >5 days or Held revenue >5% of portfolio.",
-                "release": "Held revenue <5%; approved routes sustain ≥95% DIFOT for two weekly reviews.",
-            },
-            {
-                "priority": "02",
-                "type": "Protect / change / stop",
-                "title": "Reopen material account terms",
-                "owner": "CCO",
-                "horizon": "0–90 days",
-                "trigger": "Cell sensitivity/revenue >25%, Held revenue >$1m, or contribution-negative cell.",
-                "release": "Sensitivity/revenue <10% and DIFOT ≥95% for 30 days.",
-            },
-            {
-                "priority": "03",
-                "type": "Protect / change / stop",
-                "title": "Gate the route premium",
-                "owner": "CSCO",
-                "horizon": "0–365 days",
-                "trigger": "Recovered surcharge + avoided loss fails to cover current quoted premium.",
-                "release": "Use lower-cost feasible mode once service/economic hurdle clears.",
-            },
-            {
-                "priority": "04",
-                "type": "Protect / change / stop",
-                "title": "Re-insure by corridor",
-                "owner": "CRO",
-                "horizon": "31–90 days",
-                "trigger": "Recorded burden >1.5% of cargo value or top-quartile insurance burden.",
-                "release": "Burden <0.75% for 60 days with better premium + retained loss.",
-            },
-            {
-                "priority": "05",
-                "type": "Protect / change / stop",
-                "title": "Stop unrecoverable offers",
-                "owner": "CCO",
-                "horizon": "31–365 days",
-                "trigger": "Negative contribution persists after route, price, insurance and service redesign.",
-                "release": "Re-enter only with positive prospective contribution and enforceable recovery.",
-            },
-        ],
+        "schemaVersion": SCHEMA_VERSION, "metadata": metadata, "qa": {}, "universes": universes, "financialBridge": financial_bridge, "portfolio": portfolio,
+        "routes": _route_rows(records), "customers": customer_exposure, "products": product_exposure, "decisionCells": decision_cells, "heldLedger": held_ledger,
+        "routeEvidence": route_evidence, "decisionRegister": build_decision_register(decision_cells, customer_exposure), "appendixDiagnostics": build_composite_diagnostic(shock), "methodology": methodology, "serviceEvidence": service,
+        "concentration": {"customerRevenue": _concentration_diagnostics(records, "Customer_Name"), "routeSensitivity": _concentration_diagnostics(shock, "Route_Type", sensitivity=True), "productSensitivity": _concentration_diagnostics(shock, "Product_Category", sensitivity=True)},
     }
+    return clean_number(dashboard)
 
-    checks = {
-        "canonicalUniqueIds": len(records) == len({record["Shipment_ID"] for record in records}),
-        "canonicalRows": len(records) == source_info["sourceRows"] - duplicate_info["duplicateExcessRows"],
-        "portfolioSplit": len(direct) + len(shock) == len(records),
-        "shockSplit": len(delivered) + len(held) == len(shock),
-        "revenueReconciles": abs(portfolio["contracted"] - portfolio["recognized"] - held_summary["contracted"]) < 0.01,
-        "marginReconciles": abs(portfolio["grossMargin"] - (portfolio["recognized"] - portfolio["cost"])) < 0.01,
-        "deliveredMarginReconciles": abs(delivered_summary["grossMargin"] - (delivered_summary["recognized"] - delivered_summary["cost"])) < 0.01,
-        "sensitivityReconciles": abs(shock_summary["signedSensitivity"] - delivered_summary["signedSensitivity"] - held_summary["signedSensitivity"]) < 0.01,
-        "actionCellsAreComplete": len(cell_rows) == 44,
-        "heldQueueIsComplete": len(held_queue) == len(held),
-        "heldHasNoDeliveredDIFOT": all(cell["difot"] is None for cell in cell_rows if cell["kind"] == "held"),
-        "directAdverseExcluded": all(row["adverse"] is None for row in route_rows if row["kind"] == "reference"),
-        "serviceIntervalsValid": all(
-            row["difotInterval"] is None
-            or 0 <= row["difotInterval"]["lower"] <= row["difotInterval"]["adjusted"] <= row["difotInterval"]["upper"] <= 100
-            for row in route_rows
-        ),
-        "weightLatticeComplete": all(item["vectors"] == 50 for item in score_robustness.values()),
-        "frontierComplete": len(frontier) == len(product_summaries),
-        "noConflicts": not duplicate_info["conflicts"],
-        "noBlankShipmentIds": not duplicate_info["blankShipmentIdRows"],
-        "scenarioLedgerShape": all(
-            (
-                not scenario["decisionReady"]
-                and scenario["outputs"] == {"locked": True}
-                and scenario["diagnostics"] is None
-            )
-            or (
-                scenario["decisionReady"]
-                and "totalContribution" in scenario["outputs"]
-                and "routeAllocation" in scenario["outputs"]
-                and "difot" in scenario["outputs"]
-            )
-            for scenario in scenarios
-        ),
-        "scenarioFlowConserves": all(
-            not scenario["decisionReady"] or scenario["outputs"]["flowBalanced"]
-            for scenario in scenarios
-        ),
-        "scenarioCapacityConserves": all(
-            not scenario["decisionReady"]
-            or all(
-                allocation["allocatedTonnes"] <= allocation["capacityTonnes"] + 0.01
-                for allocation in scenario["diagnostics"]["routeAllocation"]
-            )
-            for scenario in scenarios
-        ),
-        "scenarioNoReferenceRevenue": all(
-            not scenario["decisionReady"]
-            or scenario["diagnostics"]["referenceRevenueIncluded"] == 0
-            for scenario in scenarios
-        ),
-    }
-    qa = {
-        "source": metadata,
-        "sourceGate": source_gate,
-        "forwardInputs": forward_status,
-        "duplicateAdjudication": duplicate_info,
-        "counts": {
-            "sourceRows": canonical_rows,
-            "rawRows": source_info["sourceRows"],
-            "canonicalRows": len(records),
-            "directRows": len(direct),
-            "shockRows": len(shock),
-            "deliveredRows": len(delivered),
-            "heldRows": len(held),
-            "actionCells": len(cell_rows),
-        },
-        "controls": {
-            "contractedRevenue": portfolio["contracted"],
-            "recognizedRevenue": portfolio["recognized"],
-            "heldRevenue": held_summary["contracted"],
-            "shockSignedSensitivity": shock_summary["signedSensitivity"],
-            "shockAdverseSensitivity": shock_summary["adverse"],
-            "postDeliveredDIFOT": delivered_summary["difot"],
-        },
-        "checks": checks,
-        "analyticalChecksPass": all(checks.values()),
-        "pass": all(checks.values()),
-        "boardSafe": all(checks.values()) and source_gate["pass"] and forward_status["ready"],
-    }
-    return clean_number(dashboard), clean_number(qa)
+
+def _recursive_values(payload):
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            yield key, value
+            yield from _recursive_values(value)
+    elif isinstance(payload, list):
+        for value in payload:
+            yield from _recursive_values(value)
+
+
+def run_qa(records: list[dict], dashboard: dict, source_validation: dict) -> dict:
+    classified = classify_records(records)
+    direct, delivered, held = classified["direct_reference"], classified["post_blockade_delivered"], classified["held_open"]
+    shock = [*delivered, *held]
+    portfolio, direct_summary, delivered_summary, held_summary = aggregate(records), aggregate(direct), aggregate(delivered), aggregate(held)
+    all_row_arithmetic, unit_economics, row_failures = True, True, []
+    for record in records:
+        total_cost = number(record, "Total_Cost_to_Serve_USD")
+        component_cost = sum(number(record, field) for field in ("Freight_Cost_USD", "Fuel_Cost_USD", "Insurance_Cost_USD", "Penalty_Cost_USD"))
+        if abs(total_cost - component_cost) >= EPSILON_CENTS:
+            all_row_arithmetic, _ = False, row_failures.append(f"{record['Shipment_ID']}: cost_components")
+        if abs(number(record, "Gross_Margin_USD") - (number(record, "Revenue_Recognized_USD") - total_cost)) >= EPSILON_CENTS:
+            all_row_arithmetic, _ = False, row_failures.append(f"{record['Shipment_ID']}: gross_margin")
+        tonnes = number(record, "Cargo_Weight_Tons")
+        if tonnes and abs(total_cost / tonnes - number(record, "Cost_per_Ton_USD")) >= EPSILON_CENTS:
+            unit_economics, _ = False, row_failures.append(f"{record['Shipment_ID']}: cost_per_ton")
+        if tonnes and abs(number(record, "Contracted_Freight_Revenue_USD") / tonnes - number(record, "Revenue_per_Ton_USD")) >= EPSILON_CENTS:
+            unit_economics, _ = False, row_failures.append(f"{record['Shipment_ID']}: revenue_per_ton")
+    cells, register, route_evidence = dashboard["decisionCells"], dashboard["decisionRegister"], dashboard["routeEvidence"]
+    top_level_keys = {"schemaVersion", "metadata", "qa", "universes", "financialBridge", "portfolio", "routes", "customers", "products", "decisionCells", "heldLedger", "routeEvidence", "decisionRegister", "appendixDiagnostics", "methodology", "serviceEvidence", "concentration"}
+    forbidden_keys = {"scenarios", "scenarioInputs", "scenarioContribution", "scenarioDIFOT", "unservedTonnes", "optionUtilization", "costMultiplier", "insuranceMultiplier", "penaltyMultiplier", "clearRate", "heldInflowMultiplier", "recoveryRate", "serviceMultiplier", "unavailableRoutes"}
+    all_keys = {key for key, _ in _recursive_values(dashboard)}
+    source_checks = {"rowCount243": source_validation["checks"]["rowCount"], "requiredColumnsPresent": source_validation["checks"]["requiredColumns"], "uniqueNonblankShipmentIds243": source_validation["checks"]["uniqueShipmentIds"] and source_validation["checks"]["nonblankShipmentIds"], "numericFieldsParse": source_validation["checks"]["numericFieldsParse"]}
+    universe_checks = {"direct51Delivered138Held54": len(direct) == 51 and len(delivered) == 138 and len(held) == 54, "universeTotal243": len(direct) + len(delivered) + len(held) == 243, "completedServiceFieldsPresent": all(record.get("Actual_Transit_Days") is not None for record in [*direct, *delivered]), "heldRecognizedRevenueZero": all(number(record, "Revenue_Recognized_USD") == 0 for record in held), "heldActualTransitMissing": all(record.get("Actual_Transit_Days") is None for record in held)}
+    aggregate_checks = {"contractedRevenueIdentity": abs(portfolio["contractedRevenue"] - portfolio["recognizedRevenue"] - held_summary["contractedRevenue"]) < EPSILON_CENTS, "deliveredContributionIdentity": abs(delivered_summary["historicalContribution"] - (delivered_summary["recognizedRevenue"] - delivered_summary["totalCost"])) < EPSILON_CENTS, "financialBridgeReconciles": abs(dashboard["financialBridge"]["reconciliationDifference"]) < EPSILON_CENTS, "customerExposureReconciles": abs(sum(row["positiveSensitivity"] for row in dashboard["customers"]) - sum(max(number(record, "Route_Margin_Sensitivity_USD"), 0) for record in shock)) < EPSILON_CENTS, "productExposureReconciles": abs(sum(row["positiveSensitivity"] for row in dashboard["products"]) - sum(max(number(record, "Route_Margin_Sensitivity_USD"), 0) for record in shock)) < EPSILON_CENTS, "routeExposureReconciles": abs(sum(row["positiveSensitivity"] or 0 for row in dashboard["routes"] if row["universe"] != "direct_reference") - sum(max(number(record, "Route_Margin_Sensitivity_USD"), 0) for record in shock)) < EPSILON_CENTS, "decisionCells44": len(cells) == 44, "decisionCellRowsReconcile": sum(cell["sample"] for cell in cells) == len(shock), "heldLedger54": dashboard["heldLedger"]["summary"]["shipments"] == 54 and len(dashboard["heldLedger"]["rows"]) == 54}
+    service_checks = {"directDIFOT51of51": direct_summary["difotHits"] == 51 and direct_summary["difotDenominator"] == 51, "postBlockadeDIFOT113of138": delivered_summary["difotHits"] == 113 and delivered_summary["difotDenominator"] == 138, "heldDIFOTNull": dashboard["serviceEvidence"]["held_open"]["difot"] is None and dashboard["serviceEvidence"]["held_open"]["actualTransitDays"] is None, "intervalBoundsValid": all(interval is None or 0 <= interval["lower"] <= interval["adjusted"] <= interval["upper"] <= 100 for interval in [dashboard["serviceEvidence"]["direct_reference"]["serviceInterval"], dashboard["serviceEvidence"]["post_blockade_delivered"]["serviceInterval"], *[row["serviceInterval"] for row in dashboard["routes"]], *[cell["serviceInterval"] for cell in cells]])}
+    decision_checks = {"everyDecisionReferencesCell": all(item["cellId"] in {cell["id"] for cell in cells} for item in register), "prospectiveActionsListGates": all(not (set(item["posture"]) & {"renegotiate_price_or_terms", "freeze_repeat_commitment_until_gate_clears", "route_pilot", "insurance_structure_review", "held_triage"}) or item["approvalGates"] for item in register), "noPermanentExitAction": not any("exit_customer" in str(item).lower() or "stop_lane_permanently" in str(item).lower() for item in register), "noRouteRolloutApproved": all(item["rolloutApproved"] is False for item in route_evidence), "noDecisionUsesComposite": not any("composite" in str(item).lower() for item in [*cells, *register]), "heldForwardContributionNull": all(row["forwardContribution"] is None for row in dashboard["heldLedger"]["rows"]) and dashboard["heldLedger"]["summary"]["forwardContribution"] is None}
+    contract_checks = {"schemaVersion2": dashboard.get("schemaVersion") == SCHEMA_VERSION, "requiredTopLevelKeys": top_level_keys.issubset(dashboard.keys()), "noForbiddenKeys": not forbidden_keys.intersection(all_keys), "stableUniqueCellIds": len({cell["id"] for cell in cells}) == len(cells), "numericNullDiscipline": dashboard["serviceEvidence"]["held_open"]["difot"] is None and all(cell["difot"] is None for cell in cells if cell["universe"] == "held_open"), "noDeprecatedSourceFields": not any(key in all_keys for key in {"STATED_ROWS", "caseStatedRows", "provisional", "duplicatePolicy"})}
+    groups = {"source": source_checks, "universes": universe_checks, "rowArithmetic": {"costComponentReconciliation": all_row_arithmetic, "marginReconciliation": all_row_arithmetic, "weightedUnitEconomics": unit_economics}, "aggregate": aggregate_checks, "service": service_checks, "decisions": decision_checks, "contract": contract_checks}
+    failures = []
+    populations = {"source": "accepted workbook", "universes": "direct_reference, post_blockade_delivered, held_open", "rowArithmetic": "all 243 shipment records", "aggregate": "portfolio and generated ledgers", "service": "completed service and Held-open records", "decisions": "decision cells, register and route evidence", "contract": "generated dashboard JSON"}
+    for group_name, checks in groups.items():
+        for check_name, passed in checks.items():
+            if not passed:
+                failures.append({"name": f"{group_name}.{check_name}", "population": populations[group_name], "detail": "check returned false"})
+    return {"schemaVersion": SCHEMA_VERSION, "pass": not failures, "analyticalChecksPass": not failures, "failedChecks": failures, "groups": groups, "counts": {"sourceRows": len(records), "uniqueShipmentIds": len({record.get("Shipment_ID") for record in records}), "directReferenceRows": len(direct), "postBlockadeDeliveredRows": len(delivered), "heldOpenRows": len(held), "decisionCells": len(cells), "decisionRegisterRows": len(register)}, "golden": {"contractedRevenue": portfolio["contractedRevenue"], "recognizedRevenue": portfolio["recognizedRevenue"], "heldRevenue": held_summary["contractedRevenue"], "deliveredCost": delivered_summary["totalCost"], "deliveredSignedSensitivity": delivered_summary["signedSensitivity"], "benchmarkContribution": dashboard["financialBridge"]["benchmarkContribution"], "observedDeliveredContribution": dashboard["financialBridge"]["observedDeliveredContribution"], "heldCost": held_summary["totalCost"], "heldPenalty": held_summary["penaltyComponent"], "heldInsurance": held_summary["insuranceComponent"], "heldFullLifeGap": dashboard["heldLedger"]["summary"]["fullLifeGap"], "directDIFOT": direct_summary["difot"], "postBlockadeDIFOT": delivered_summary["difot"], "topThreeCustomerExposureShare": dashboard["customers"][2]["cumulativeSharePct"], "topTwoProductExposureShare": dashboard["products"][1]["cumulativeSharePct"]}}
+
+
+def clean_number(value_to_clean):
+    if isinstance(value_to_clean, float) and not math.isfinite(value_to_clean):
+        return None
+    if isinstance(value_to_clean, dict):
+        return {key: clean_number(value) for key, value in value_to_clean.items()}
+    if isinstance(value_to_clean, list):
+        return [clean_number(value) for value in value_to_clean]
+    return value_to_clean
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -1487,76 +729,29 @@ def write_json(path: Path, payload: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workbook", type=Path, help="approved raw workbook; cleaned workbook is used only as a provisional fallback")
+    parser.add_argument("--workbook", type=Path, default=DEFAULT_WORKBOOK)
     parser.add_argument("--dashboard", type=Path, default=DASHBOARD_PATH)
     parser.add_argument("--qa", type=Path, default=QA_PATH)
-    parser.add_argument("--source-manifest", type=Path, default=SOURCE_MANIFEST_PATH)
-    parser.add_argument("--duplicate-adjudication", type=Path, default=DUPLICATE_ADJUDICATION_PATH)
-    parser.add_argument("--forward-inputs", type=Path, default=FORWARD_INPUTS_PATH)
-    parser.add_argument("--strict-source", action="store_true", help="fail unless the approved source contract is verified")
-    parser.add_argument("--strict-board", action="store_true", help="fail unless source and owner-supplied forward contracts are verified")
+    parser.add_argument("--strict-source", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--strict-board", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-
     try:
-        source_manifest = load_json(args.source_manifest)
-        approved_source = ROOT / source_manifest.get("approvedRawSourceFile", "")
-        workbook = args.workbook or (approved_source if approved_source.exists() else DEFAULT_WORKBOOK)
-        raw_records, source_info = parse_workbook(workbook)
-        records, duplicate_info = canonicalize(raw_records)
-        forward_payload = load_json(args.forward_inputs)
-        dashboard, qa = build_data(records, source_info, duplicate_info, source_manifest, forward_payload)
+        records, source_info = parse_workbook(args.workbook)
+        source_validation = validate_source(records, source_info)
+        if not source_validation["pass"]:
+            raise ValueError("source validation failed: " + ", ".join(source_validation["failedChecks"]) + (f"; missing columns: {source_validation['missingColumns']}" if source_validation["missingColumns"] else ""))
+        dashboard = build_dashboard(records, source_info, source_validation)
+        qa = run_qa(records, dashboard, source_validation)
+        dashboard["qa"] = qa
         write_json(args.dashboard, dashboard)
         write_json(args.qa, qa)
-        write_json(
-            args.duplicate_adjudication,
-            {
-                "source": source_info,
-                "contract": {
-                    "approvedRawRows": source_manifest.get("approvedRawRows", APPROVED_RAW_ROWS),
-                    "expectedCanonicalRows": source_manifest.get("expectedCanonicalRows", EXPECTED_CANONICAL_ROWS),
-                    "expectedDuplicateExcessRows": source_manifest.get("expectedDuplicateExcessRows", EXPECTED_DUPLICATE_EXCESS),
-                },
-                "duplicateAdjudication": duplicate_info,
-                "sourceGate": qa["sourceGate"],
-            },
-        )
     except (KeyError, OSError, ET.ParseError, ValueError, BadZipFile) as error:
         print(f"analysis failed: {error}", file=sys.stderr)
         return 1
-
-    failed = [name for name, passed in qa["checks"].items() if not passed]
-    if duplicate_info["conflicts"]:
-        failed.append("conflicting duplicate Shipment_ID")
-    if duplicate_info["blankShipmentIdRows"]:
-        failed.append("blank Shipment_ID")
-    if failed:
-        print(f"QA failed: {', '.join(failed)}", file=sys.stderr)
+    if not qa["pass"]:
+        print("QA failed: " + ", ".join(item["name"] for item in qa["failedChecks"]), file=sys.stderr)
         return 1
-    if (args.strict_source or args.strict_board) and not qa["sourceGate"]["pass"]:
-        failed_gate = [name for name, passed in qa["sourceGate"]["checks"].items() if not passed]
-        print(f"source gate failed: {', '.join(failed_gate)}", file=sys.stderr)
-        return 1
-    forward_status = qa["forwardInputs"]
-    if args.strict_board and not forward_status["ready"]:
-        failed_inputs = [
-            name
-            for name, passed in {
-                "approved": forward_status["approved"],
-                "complete": forward_status["complete"],
-                "versioned": forward_status["versioned"],
-                "source": forward_status["hasSource"],
-                "effectiveDate": forward_status["hasEffectiveDate"],
-            }.items()
-            if not passed
-        ]
-        print(f"forward input gate failed: {', '.join(failed_inputs)}", file=sys.stderr)
-        return 1
-    print(
-        f"Generated {args.dashboard} and {args.qa}: "
-        f"{qa['counts']['canonicalRows']} canonical rows, "
-        f"{qa['counts']['actionCells']} action cells, "
-        f"{qa['counts']['heldRows']} Held rows."
-    )
+    print(f"Generated {args.dashboard} and {args.qa}: {qa['counts']['sourceRows']} accepted rows, {qa['counts']['decisionCells']} decision cells, {qa['counts']['heldOpenRows']} Held rows.")
     return 0
 
 

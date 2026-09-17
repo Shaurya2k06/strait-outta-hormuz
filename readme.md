@@ -1,10 +1,19 @@
 # Strait Outta Hormuz
 
-The dashboard is a generated, provisional war-room snapshot for the supplied
-case workbook. `analysis/analyze.py` is the source of truth: it reads
-`R2-WAR ROOM MASTERPLAN-cleaned.xlsx`, adjudicates duplicate `Shipment_ID`s,
-reconciles the analytical universes, and writes `client/src/dashboard-data.json`
-plus `analysis/qa-report.json`.
+This repository contains a dataset-only analytical engine and React evidence
+view for the supplied 243-row `Shipment_Data` workbook.
+
+## Analytical contract
+
+- The workbook is the complete source: 243 nonblank, unique `Shipment_ID` values and all required columns must validate before calculation.
+- Records stay in three named universes: 51 Direct reference shipments, 138 post-blockade delivered shipments and 54 Held-open shipments.
+- Python is the analytical source of truth. React only formats, filters and presents the generated schema.
+- There is no forward forecast, route-capacity model, clearance model, recovery assumption or unapproved freight/insurance/service input.
+- Direct is a historical product-matched benchmark. Route comparisons are observational pilot evidence, never causal, optimal, capacity-feasible or rollout-approved.
+- Held shipments are a triage ledger. They are excluded from delivered DIFOT and have no release schedule.
+- Total cost already includes freight, fuel, insurance and penalty; those components are disclosed but never added twice.
+
+Generated output uses schema `2.0.0` and contains the financial bridge, exposure ledgers, product-matched route evidence, 44 decision cells, Held ledger, decision register, methodology labels and an appendix-only composite diagnostic.
 
 ## Run
 
@@ -15,19 +24,25 @@ npm run verify
 npm run dev
 ```
 
-Use `npm run analyze` after replacing the workbook. It fails on conflicting
-duplicates or reconciliation errors. The approved source in this checkout is
-`R2-WAR ROOM MASTERPLAN-cleaned.xlsx`: 243 raw rows → 243 canonical rows,
-with its SHA-256 hash and duplicate-adjudication artifact registered. The
-dashboard still withholds scenario outputs until owner-approved forward route
-inputs are present. Use `npm run analyze -- --strict-source` to verify the
-source contract and `npm run verify:board` before a board release.
-Use `npm run verify:board` before any board release; it additionally requires
-the approved owner-supplied forward ledger inputs.
+Refresh the generated JSON after replacing the workbook:
 
-Scenario output is generated only from approved forward inputs. Until those
-inputs are supplied, the UI shows the gate and required fields instead of
-calculating proposal economics.
+```sh
+python3 analysis/analyze.py
+python3 analysis/test_analysis.py
+```
 
-Held shipments stay in a separate open-exposure ledger. Direct is a historical
-benchmark. Route comparisons are descriptive and do not establish causality.
+`analysis/analyze.py` fails with the exact source checks when the 243-row
+contract, required columns, row arithmetic, universe reconciliations or output
+contract do not pass. `analysis/qa-report.json` is terminal QA output; business
+calculations do not depend on it.
+
+## Evidence labels
+
+- `FACT`: directly observed in the accepted workbook.
+- `DERIVED`: calculated from accepted workbook fields using documented formulas.
+- `PROPOSAL`: a management posture, owner or release condition.
+- `MISSING_INPUT`: a prospective approval input that is not present in the workbook.
+
+Before execution, owners must approve the named quote, route-week capacity,
+product/cargo feasibility, insurance terms, service requirement, customer
+recovery term, effective date and approving owner gates.

@@ -12,10 +12,9 @@
     "preview": "vite preview",
     "test": "python3 ../analysis/analyze.py && python3 ../analysis/test_analysis.py",
     "verify": "npm test && npm run lint && npm run build",
-    "verify:board": "npm run verify && python3 ../analysis/analyze.py --strict-board"
+    "verify:board": "npm run verify"
   },
   "dependencies": {
-    "@unovis/react": "^1.7.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

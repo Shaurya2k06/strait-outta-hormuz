@@ -1,159 +1,85 @@
 {
-  "source": {
-    "sourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
-    "sourceSheet": "Shipment_Data",
-    "sourceRows": 243,
-    "rawRows": 243,
-    "canonicalRows": 243,
-    "approvedRawRows": 243,
-    "caseStatedRows": 243,
-    "sourceSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed",
-    "sourceGate": {
-      "pass": true,
-      "status": "verified",
-      "checks": {
-        "approvedRawRows": true,
-        "canonicalRows": true,
-        "duplicateExcessRows": true,
-        "noBlankShipmentIds": true,
-        "noConflictingDuplicates": true,
-        "duplicateAdjudicationMatchesManifest": true,
-        "approvedWorkbookHash": true,
-        "approvedSourceVersion": true,
-        "sourceContractVersion": true
-      },
-      "reasons": {
-        "approvedRawRows": "pass",
-        "canonicalRows": "pass",
-        "duplicateExcessRows": "pass",
-        "noBlankShipmentIds": "pass",
-        "noConflictingDuplicates": "pass",
-        "duplicateAdjudicationMatchesManifest": "pass",
-        "approvedWorkbookHash": "pass",
-        "approvedSourceVersion": "pass",
-        "sourceContractVersion": "pass"
-      },
-      "approvedRawRows": 243,
-      "expectedCanonicalRows": 243,
-      "expectedDuplicateExcessRows": 0,
-      "observedRawRows": 243,
-      "observedCanonicalRows": 243,
-      "observedDuplicateExcessRows": 0,
-      "approvedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
-      "observedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
-      "observedSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
+  "schemaVersion": "2.0.0",
+  "pass": true,
+  "analyticalChecksPass": true,
+  "failedChecks": [],
+  "groups": {
+    "source": {
+      "rowCount243": true,
+      "requiredColumnsPresent": true,
+      "uniqueNonblankShipmentIds243": true,
+      "numericFieldsParse": true
     },
-    "observationStart": "2026-01-05",
-    "observationEnd": "2026-03-22",
-    "asOf": "2026-03-22",
-    "provisional": true,
-    "duplicatePolicy": "Validate 243 approved source rows; collapse exact duplicate Shipment_ID rows once; fail on blank or conflicting IDs."
-  },
-  "sourceGate": {
-    "pass": true,
-    "status": "verified",
-    "checks": {
-      "approvedRawRows": true,
-      "canonicalRows": true,
-      "duplicateExcessRows": true,
-      "noBlankShipmentIds": true,
-      "noConflictingDuplicates": true,
-      "duplicateAdjudicationMatchesManifest": true,
-      "approvedWorkbookHash": true,
-      "approvedSourceVersion": true,
-      "sourceContractVersion": true
+    "universes": {
+      "direct51Delivered138Held54": true,
+      "universeTotal243": true,
+      "completedServiceFieldsPresent": true,
+      "heldRecognizedRevenueZero": true,
+      "heldActualTransitMissing": true
     },
-    "reasons": {
-      "approvedRawRows": "pass",
-      "canonicalRows": "pass",
-      "duplicateExcessRows": "pass",
-      "noBlankShipmentIds": "pass",
-      "noConflictingDuplicates": "pass",
-      "duplicateAdjudicationMatchesManifest": "pass",
-      "approvedWorkbookHash": "pass",
-      "approvedSourceVersion": "pass",
-      "sourceContractVersion": "pass"
+    "rowArithmetic": {
+      "costComponentReconciliation": true,
+      "marginReconciliation": true,
+      "weightedUnitEconomics": true
     },
-    "approvedRawRows": 243,
-    "expectedCanonicalRows": 243,
-    "expectedDuplicateExcessRows": 0,
-    "observedRawRows": 243,
-    "observedCanonicalRows": 243,
-    "observedDuplicateExcessRows": 0,
-    "approvedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
-    "observedSourceFile": "R2-WAR ROOM MASTERPLAN-cleaned.xlsx",
-    "observedSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
-  },
-  "forwardInputs": {
-    "ready": false,
-    "status": "awaiting owner approval",
-    "approved": false,
-    "complete": false,
-    "versioned": true,
-    "hasSource": true,
-    "hasEffectiveDate": false,
-    "source": "awaiting owner-supplied quotes, route-week capacity, insurance and service bounds",
-    "effectiveDate": null,
-    "requiredFields": [
-      "approved owner-supplied route-week capacity",
-      "quoted incremental freight and fuel",
-      "incremental insurance rate",
-      "expected future penalty and failure cost",
-      "service lower bound",
-      "recoverable surcharge / price term",
-      "route-week capacity or an approved horizon capacity"
-    ]
-  },
-  "duplicateAdjudication": {
-    "duplicateGroups": 0,
-    "exactDuplicatesCollapsed": [],
-    "conflicts": [],
-    "blankShipmentIdRows": [],
-    "duplicateExcessRows": 0,
-    "adjudicationTable": []
+    "aggregate": {
+      "contractedRevenueIdentity": true,
+      "deliveredContributionIdentity": true,
+      "financialBridgeReconciles": true,
+      "customerExposureReconciles": true,
+      "productExposureReconciles": true,
+      "routeExposureReconciles": true,
+      "decisionCells44": true,
+      "decisionCellRowsReconcile": true,
+      "heldLedger54": true
+    },
+    "service": {
+      "directDIFOT51of51": true,
+      "postBlockadeDIFOT113of138": true,
+      "heldDIFOTNull": true,
+      "intervalBoundsValid": true
+    },
+    "decisions": {
+      "everyDecisionReferencesCell": true,
+      "prospectiveActionsListGates": true,
+      "noPermanentExitAction": true,
+      "noRouteRolloutApproved": true,
+      "noDecisionUsesComposite": true,
+      "heldForwardContributionNull": true
+    },
+    "contract": {
+      "schemaVersion2": true,
+      "requiredTopLevelKeys": true,
+      "noForbiddenKeys": true,
+      "stableUniqueCellIds": true,
+      "numericNullDiscipline": true,
+      "noDeprecatedSourceFields": true
+    }
   },
   "counts": {
     "sourceRows": 243,
-    "rawRows": 243,
-    "canonicalRows": 243,
-    "directRows": 51,
-    "shockRows": 192,
-    "deliveredRows": 138,
-    "heldRows": 54,
-    "actionCells": 44
+    "uniqueShipmentIds": 243,
+    "directReferenceRows": 51,
+    "postBlockadeDeliveredRows": 138,
+    "heldOpenRows": 54,
+    "decisionCells": 44,
+    "decisionRegisterRows": 44
   },
-  "controls": {
+  "golden": {
     "contractedRevenue": 113313425.65999997,
     "recognizedRevenue": 87389145.82999997,
     "heldRevenue": 25924279.830000002,
-    "shockSignedSensitivity": 177481147.58583516,
-    "shockAdverseSensitivity": 178709588.63413113,
-    "postDeliveredDIFOT": 81.88405797101449
-  },
-  "checks": {
-    "canonicalUniqueIds": true,
-    "canonicalRows": true,
-    "portfolioSplit": true,
-    "shockSplit": true,
-    "revenueReconciles": true,
-    "marginReconciles": true,
-    "deliveredMarginReconciles": true,
-    "sensitivityReconciles": true,
-    "actionCellsAreComplete": true,
-    "heldQueueIsComplete": true,
-    "heldHasNoDeliveredDIFOT": true,
-    "directAdverseExcluded": true,
-    "serviceIntervalsValid": true,
-    "weightLatticeComplete": true,
-    "frontierComplete": true,
-    "noConflicts": true,
-    "noBlankShipmentIds": true,
-    "scenarioLedgerShape": true,
-    "scenarioFlowConserves": true,
-    "scenarioCapacityConserves": true,
-    "scenarioNoReferenceRevenue": true
-  },
-  "analyticalChecksPass": true,
-  "pass": true,
-  "boardSafe": false
+    "deliveredCost": 228026014.3399999,
+    "deliveredSignedSensitivity": 166017249.42381522,
+    "benchmarkContribution": 8313859.033815309,
+    "observedDeliveredContribution": -157703390.38999993,
+    "heldCost": 34315352.09999999,
+    "heldPenalty": 26015708.840000007,
+    "heldInsurance": 4481012.260000002,
+    "heldFullLifeGap": 8391072.269999985,
+    "directDIFOT": 100.0,
+    "postBlockadeDIFOT": 81.88405797101449,
+    "topThreeCustomerExposureShare": 90.40679109486457,
+    "topTwoProductExposureShare": 99.1001514585365
+  }
 }
