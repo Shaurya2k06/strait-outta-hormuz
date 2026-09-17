@@ -45,6 +45,15 @@ const universeLabel = (value) => ({ direct_reference: 'Direct reference', post_b
 const decisionStatusLabel = (value) => ({ blocked_missing_input: 'Approval required', approval_required: 'Approval required', conditional: 'Conditional', actionable_historical: 'Historical action' })[value] ?? titleCase(value)
 const evidenceLabel = (value) => value === 'MISSING_INPUT' ? 'INPUT_REQUIRED' : value
 const barWidth = (value) => `${Math.max(0, Math.min(100, Number(value) || 0))}%`
+const navigationItems = [
+  { id: 'command', label: 'Command' },
+  { id: 'bridge', label: 'Financial bridge' },
+  { id: 'exposure', label: 'Exposure' },
+  { id: 'held', label: 'Held ledger' },
+  { id: 'decisions', label: 'Decision cells' },
+  { id: 'register', label: 'Register' },
+  { id: 'methodology', label: 'Method' },
+]
 
 function EvidenceTag({ type }) {
   return <span className={`evidence-tag ${String(type).toLowerCase()}`}>{type}</span>
@@ -349,17 +358,31 @@ function AppendixPanel() {
 function App() {
   const [selectedCustomer, setSelectedCustomer] = useState('')
   const [navExpanded, setNavExpanded] = useState(false)
+  const [activeSection, setActiveSection] = useState('command')
   const selectedExposure = customers.find((customer) => customer.name === selectedCustomer)
   const deliveredService = serviceEvidence.post_blockade_delivered
+  const activeNavLabel = navigationItems.find((item) => item.id === activeSection)?.label ?? 'Command'
+
+  useEffect(() => {
+    const sections = navigationItems.map((item) => document.getElementById(item.id)).filter(Boolean)
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)
+      if (visible[0]) setActiveSection(visible[0].target.id)
+    }, { rootMargin: '-18% 0px -65% 0px', threshold: [0, .15, .4, .7] })
+
+    sections.forEach((section) => observer.observe(section))
+    return () => observer.disconnect()
+  }, [])
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">S</span><div><b>STRAIT OUTTA</b><strong>HORMUZ</strong></div></div>
         <div className="sidebar-kicker"><i /> historical evidence engine</div>
         <nav className={navExpanded ? 'expanded' : ''} aria-label="Dashboard sections">
-          <button type="button" className="nav-toggle" aria-expanded={navExpanded} aria-controls="dashboard-nav-links" onClick={() => setNavExpanded((expanded) => !expanded)}><span className="nav-toggle-mark" aria-hidden="true"><i /><i /><i /></span><span className="nav-toggle-label">Menu</span></button>
+          <button type="button" className="nav-toggle" aria-expanded={navExpanded} aria-controls="dashboard-nav-links" onClick={() => setNavExpanded((expanded) => !expanded)}><span className="nav-toggle-mark" aria-hidden="true"><i /><i /><i /></span><span className="nav-toggle-label">{activeNavLabel}</span></button>
           <div className="nav-links" id="dashboard-nav-links">
-            <a className="active" href="#command" onClick={() => setNavExpanded(false)}>Command</a><a href="#bridge" onClick={() => setNavExpanded(false)}>Financial bridge</a><a href="#exposure" onClick={() => setNavExpanded(false)}>Exposure</a><a href="#held" onClick={() => setNavExpanded(false)}>Held ledger <span>{heldLedger.summary.shipments}</span></a><a href="#decisions" onClick={() => setNavExpanded(false)}>Decision cells</a><a href="#register" onClick={() => setNavExpanded(false)}>Register</a><a href="#methodology" onClick={() => setNavExpanded(false)}>Method</a>
+            {navigationItems.map((item) => <a className={activeSection === item.id ? 'active' : ''} aria-current={activeSection === item.id ? 'location' : undefined} href={`#${item.id}`} key={item.id} onClick={() => { setActiveSection(item.id); setNavExpanded(false) }}>{item.label}{item.id === 'held' && <span>{heldLedger.summary.shipments}</span>}</a>)}
           </div>
         </nav>
         <div className="sidebar-bottom"><div className="source-block"><small>accepted source</small><b>{metadata.sourceRows} shipments</b><span>{metadata.uniqueShipmentIds} unique IDs</span><span>{metadata.sourceStatus}</span></div><div className="sidebar-foot"><span>R2 / INTERNAL</span><span>{dateLabel(metadata.observationEnd)}</span></div></div>
