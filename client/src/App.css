@@ -112,7 +112,7 @@ h1, h2, h3, p { margin: 0; }
 }
 
 .sidebar nav:hover, .sidebar nav:focus-within, .sidebar nav.expanded {
-  width: min(720px, calc(100vw - 48px));
+  width: min(920px, calc(100vw - 48px));
 }
 
 .nav-toggle {
@@ -127,7 +127,7 @@ h1, h2, h3, p { margin: 0; }
   height: 36px;
   padding: 0 11px;
   border-radius: var(--radius-pill);
-  color: var(--nav-voltage);
+  color: var(--carbon);
   background: transparent;
   cursor: pointer;
   transition: background-color .15s ease, transform .15s ease;
@@ -148,14 +148,14 @@ h1, h2, h3, p { margin: 0; }
   width: 14px;
   height: 1.5px;
   border-radius: 2px;
-  background: var(--nav-voltage);
+  background: var(--carbon);
   transition: transform .3s ease;
 }
 
 .nav-toggle-label {
   max-width: 112px;
   overflow: hidden;
-  color: var(--nav-voltage);
+  color: var(--carbon);
   font: 500 11px/1 var(--sans);
   opacity: 1;
   text-transform: uppercase;
@@ -173,6 +173,7 @@ h1, h2, h3, p { margin: 0; }
   position: relative;
   z-index: 1;
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 3px;
   max-width: 0;
@@ -185,7 +186,7 @@ h1, h2, h3, p { margin: 0; }
 }
 
 .sidebar nav:hover .nav-links, .sidebar nav:focus-within .nav-links, .sidebar nav.expanded .nav-links {
-  max-width: 650px;
+  max-width: 780px;
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0) scaleX(1);
@@ -193,18 +194,19 @@ h1, h2, h3, p { margin: 0; }
 
 .sidebar nav a {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 7px;
   padding: 11px 13px;
   border-radius: var(--radius-pill);
-  color: var(--nav-voltage);
+  color: var(--carbon);
   font: 500 12px/1.1 var(--sans);
   white-space: nowrap;
   transition: color .15s ease, background-color .15s ease, transform .15s ease;
 }
 
 .sidebar nav a:hover {
-  color: var(--carbon);
+  color: var(--nav-voltage);
   background: transparent;
 }
 
@@ -213,9 +215,9 @@ h1, h2, h3, p { margin: 0; }
   background: transparent;
 }
 
+.sidebar nav a.active:hover { color: var(--nav-voltage); }
 .sidebar nav a:active { transform: translateY(1px); }
-.sidebar nav a span { color: var(--nav-voltage); font: 400 11px var(--mono); }
-.sidebar nav a.active span { color: var(--carbon); }
+.sidebar nav a span { color: inherit; font: 400 11px var(--mono); }
 
 .main-content {
   margin: 0;
