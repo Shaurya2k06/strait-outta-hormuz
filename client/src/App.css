@@ -328,8 +328,8 @@ h1, h2, h3, p { margin: 0; }
   overflow: hidden;
   padding: 32px;
   border-radius: var(--radius-large) var(--radius-large) var(--radius-card) var(--radius-card);
-  color: var(--paper);
-  background: var(--carbon);
+  color: var(--carbon);
+  background: var(--paper);
 }
 
 .hero-proof::after {
@@ -352,24 +352,28 @@ h1, h2, h3, p { margin: 0; }
   gap: 5px 14px;
   max-width: 480px;
   padding: 17px 0;
-  border-top: 1px solid rgba(255, 255, 255, .32);
+  border-top: 1px solid var(--ash);
 }
 
 .proof-step span {
   grid-row: span 2;
-  color: var(--mint);
+  width: max-content;
+  padding: 4px 6px;
+  border-radius: 64px;
+  color: var(--carbon);
+  background: var(--mint);
   font: 400 12px/1.2 var(--mono);
 }
 
 .proof-step b {
-  color: var(--paper);
+  color: var(--carbon);
   font: 500 20px/1.08 var(--sans);
   letter-spacing: -.02em;
   text-transform: uppercase;
 }
 
 .proof-step small {
-  color: var(--smoke);
+  color: var(--slate);
   font: 400 12px/1.45 var(--mono);
 }
 
