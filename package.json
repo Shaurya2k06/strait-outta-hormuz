@@ -1,0 +1,12 @@
+{
+  "name": "strait-outta-hormuz",
+  "private": true,
+  "workspaces": ["client"],
+  "scripts": {
+    "build": "npm run build --workspace client",
+    "dev": "npm run dev --workspace client",
+    "lint": "npm run lint --workspace client",
+    "test": "npm run test --workspace client",
+    "verify": "npm run verify --workspace client"
+  }
+}
