@@ -348,6 +348,7 @@ function AppendixPanel() {
 
 function App() {
   const [selectedCustomer, setSelectedCustomer] = useState('')
+  const [navExpanded, setNavExpanded] = useState(false)
   const selectedExposure = customers.find((customer) => customer.name === selectedCustomer)
   const deliveredService = serviceEvidence.post_blockade_delivered
   return (
@@ -355,8 +356,11 @@ function App() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">S</span><div><b>STRAIT OUTTA</b><strong>HORMUZ</strong></div></div>
         <div className="sidebar-kicker"><i /> historical evidence engine</div>
-        <nav aria-label="Dashboard sections">
-          <a className="active" href="#command">Command</a><a href="#bridge">Financial bridge</a><a href="#exposure">Exposure</a><a href="#held">Held ledger <span>{heldLedger.summary.shipments}</span></a><a href="#decisions">Decision cells</a><a href="#register">Register</a><a href="#methodology">Method</a>
+        <nav className={navExpanded ? 'expanded' : ''} aria-label="Dashboard sections">
+          <button type="button" className="nav-toggle" aria-expanded={navExpanded} aria-controls="dashboard-nav-links" onClick={() => setNavExpanded((expanded) => !expanded)}><span className="nav-toggle-mark" aria-hidden="true"><i /><i /><i /></span><span className="nav-toggle-label">Menu</span></button>
+          <div className="nav-links" id="dashboard-nav-links">
+            <a className="active" href="#command" onClick={() => setNavExpanded(false)}>Command</a><a href="#bridge" onClick={() => setNavExpanded(false)}>Financial bridge</a><a href="#exposure" onClick={() => setNavExpanded(false)}>Exposure</a><a href="#held" onClick={() => setNavExpanded(false)}>Held ledger <span>{heldLedger.summary.shipments}</span></a><a href="#decisions" onClick={() => setNavExpanded(false)}>Decision cells</a><a href="#register" onClick={() => setNavExpanded(false)}>Register</a><a href="#methodology" onClick={() => setNavExpanded(false)}>Method</a>
+          </div>
         </nav>
         <div className="sidebar-bottom"><div className="source-block"><small>accepted source</small><b>{metadata.sourceRows} shipments</b><span>{metadata.uniqueShipmentIds} unique IDs</span><span>{metadata.sourceStatus}</span></div><div className="sidebar-foot"><span>R2 / INTERNAL</span><span>{dateLabel(metadata.observationEnd)}</span></div></div>
       </aside>

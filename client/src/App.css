@@ -95,13 +95,117 @@ h1, h2, h3, p { margin: 0; }
 .sidebar-kicker, .sidebar-bottom { display: none; }
 
 .sidebar nav {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 3px;
+  width: 68px;
+  max-width: calc(100vw - 24px);
+  height: 52px;
+  overflow: hidden;
   padding: 8px;
   border-radius: var(--radius-pill);
   background: var(--paper);
+  transition: width .46s cubic-bezier(.22, 1, .36, 1), background-color .25s ease;
+}
+
+.sidebar nav::before {
+  position: absolute;
+  top: -24px;
+  left: 52px;
+  z-index: 0;
+  width: 140px;
+  height: 92px;
+  border-radius: 56% 44% 48% 52%;
+  background: var(--mint);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-28px) scale(.5) rotate(-12deg);
+  transition: opacity .25s ease, transform .55s cubic-bezier(.22, 1, .36, 1);
+}
+
+.sidebar nav:hover, .sidebar nav:focus-within, .sidebar nav.expanded {
+  width: min(720px, calc(100vw - 48px));
+}
+
+.sidebar nav:hover::before, .sidebar nav:focus-within::before, .sidebar nav.expanded::before {
+  opacity: .78;
+  transform: translateX(320px) scale(1.2) rotate(9deg);
+}
+
+.nav-toggle {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  width: 52px;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: var(--radius-pill);
+  color: var(--paper);
+  background: var(--carbon);
+  cursor: pointer;
+  transition: background-color .15s ease, transform .15s ease;
+}
+
+.nav-toggle:hover { background: var(--graphite); }
+.nav-toggle:active { transform: translateY(1px); }
+
+.nav-toggle-mark {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 3px;
+  width: 14px;
+}
+
+.nav-toggle-mark i {
+  display: block;
+  width: 14px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform .3s ease;
+}
+
+.nav-toggle-label {
+  max-width: 0;
+  overflow: hidden;
+  color: var(--paper);
+  font: 500 11px/1 var(--sans);
+  opacity: 0;
+  text-transform: uppercase;
+  transition: max-width .35s ease, opacity .2s ease;
+}
+
+.sidebar nav:hover .nav-toggle-label, .sidebar nav:focus-within .nav-toggle-label, .sidebar nav.expanded .nav-toggle-label {
+  max-width: 40px;
+  opacity: 1;
+}
+
+.nav-links {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-14px) scaleX(.9);
+  transform-origin: left center;
+  transition: max-width .46s cubic-bezier(.22, 1, .36, 1), opacity .2s ease, transform .46s cubic-bezier(.22, 1, .36, 1);
+}
+
+.sidebar nav:hover .nav-links, .sidebar nav:focus-within .nav-links, .sidebar nav.expanded .nav-links {
+  max-width: 650px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scaleX(1);
 }
 
 .sidebar nav a {
@@ -848,7 +952,7 @@ tr.selected td, tbody tr:hover td { color: var(--carbon); background: var(--mint
 
 @media (max-width: 980px) {
   .sidebar { grid-template-columns: auto 1fr; height: auto; min-height: 104px; padding: 20px 24px; }
-  .sidebar nav { justify-self: end; max-width: 100%; overflow-x: auto; }
+  .sidebar nav { justify-self: end; max-width: 100%; overflow: hidden; }
   .two-column, .exposure-columns, .methodology-grid { grid-template-columns: 1fr; }
 }
 
@@ -873,7 +977,7 @@ tr.selected td, tbody tr:hover td { color: var(--carbon); background: var(--mint
   .sidebar, .topbar, .accepted-banner, .hero, .metric-grid, .section, .app-footer { margin-left: 10px; margin-right: 10px; }
   .sidebar { display: flex; min-height: 0; flex-direction: column; align-items: stretch; gap: 16px; padding: 18px 12px 12px; }
   .brand { align-self: flex-start; }
-  .sidebar nav { justify-content: flex-start; margin: 0 -4px; padding: 6px; }
+  .sidebar nav { align-self: flex-start; justify-content: flex-start; margin: 0; padding: 6px; }
   .sidebar nav a { padding: 10px 12px; }
   .topbar-meta span:last-child { display: none; }
   .accepted-banner { padding: 14px; }
