@@ -377,19 +377,14 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">S</span><div><b>STRAIT OUTTA</b><strong>HORMUZ</strong></div></div>
-        <div className="sidebar-kicker"><i /> historical evidence engine</div>
         <nav className={navExpanded ? 'expanded' : ''} aria-label="Dashboard sections">
           <button type="button" className="nav-toggle" aria-expanded={navExpanded} aria-controls="dashboard-nav-links" onClick={() => setNavExpanded((expanded) => !expanded)}><span className="nav-toggle-mark" aria-hidden="true"><i /><i /><i /></span><span className="nav-toggle-label">{activeNavLabel}</span></button>
           <div className="nav-links" id="dashboard-nav-links">
             {navigationItems.map((item) => <a className={activeSection === item.id ? 'active' : ''} aria-current={activeSection === item.id ? 'location' : undefined} href={`#${item.id}`} key={item.id} onClick={() => { setActiveSection(item.id); setNavExpanded(false) }}>{item.label}{item.id === 'held' && <span>{heldLedger.summary.shipments}</span>}</a>)}
           </div>
         </nav>
-        <div className="sidebar-bottom"><div className="source-block"><small>accepted source</small><b>{metadata.sourceRows} shipments</b><span>{metadata.uniqueShipmentIds} unique IDs</span><span>{metadata.sourceStatus}</span></div><div className="sidebar-foot"><span>R2 / INTERNAL</span><span>{dateLabel(metadata.observationEnd)}</span></div></div>
       </aside>
       <main className="main-content">
-        <header className="topbar"><div className="breadcrumb">R2 <i>/</i> analytical engine</div><div className="topbar-meta"><span><i /> generated {dateLabel(metadata.generatedAt.slice(0, 10))}</span><span>schema {dashboardData.schemaVersion}</span></div></header>
-        <div className="accepted-banner"><div><StatusPill tone="accepted">source accepted</StatusPill><span>{metadata.sourceRows} nonblank, unique Shipment_IDs · Python-generated output</span></div><span className="banner-note">Historical evidence · owner-gated execution</span></div>
         <section className="hero" id="command"><div className="hero-copy"><span className="eyebrow">Board review</span><h1>What moved. What broke.</h1><p>The shipment ledger links route-cost exposure to commercial posture, then carries each action to an owner gate.</p><div className="hero-actions"><a className="primary-action" href="#register">Open decision register <span>↗</span></a><a className="quiet-action" href="#methodology">Read method</a></div></div></section>
         <section className="metric-grid" aria-label="Executive evidence"><Metric label="Accepted source" value={formatNumber(metadata.sourceRows)} detail={`${metadata.uniqueShipmentIds} unique Shipment_IDs · ${dateLabel(metadata.observationStart)} to ${dateLabel(metadata.observationEnd)}`} tone="blue" /><Metric label="Benchmark contribution" value={`+${formatMoney(financialBridge.benchmarkContribution)}`} detail="Direct-equivalent economics · delivered population" tone="positive" /><Metric label="Observed delivered contribution" value={formatMoney(financialBridge.observedDeliveredContribution)} detail={`${portfolio.postBlockadeDelivered.shipments} completed post-blockade shipments`} tone="negative" /><Metric label="Post-blockade DIFOT" value={formatPercent(deliveredService.difot)} detail={`${deliveredService.difotHits}/${deliveredService.difotDenominator} hits · 90% Jeffreys interval ${formatPercent(deliveredService.serviceInterval.lower)}-${formatPercent(deliveredService.serviceInterval.upper)}`} tone="amber" /></section>
         <section className="section" id="bridge"><SectionHeading index="01 / financial bridge" title="Economics by evidence universe." /><div className="two-column"><BridgePanel /><UniversePanel /></div></section>
