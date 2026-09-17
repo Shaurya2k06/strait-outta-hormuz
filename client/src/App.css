@@ -206,10 +206,11 @@ h1, h2, h3, p { margin: 0; }
 .status-pill.required { color: var(--carbon); background: var(--yellow); }
 .status-pill.neutral { color: var(--slate); background: var(--mist); }
 
-/* Editorial split hero. The existing analytical proof remains the real visual. */
+/* Centered editorial hero. */
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  place-items: center;
   max-width: 1200px;
   min-height: 470px;
   margin: 16px auto 0;
@@ -217,12 +218,15 @@ h1, h2, h3, p { margin: 0; }
 
 .hero-copy {
   display: flex;
+  align-items: center;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: center;
+  width: 100%;
   min-width: 0;
   max-width: 900px;
   min-height: 470px;
   padding: 56px clamp(24px, 5vw, 72px) 64px;
+  text-align: center;
 }
 
 .eyebrow {
@@ -236,6 +240,7 @@ h1, h2, h3, p { margin: 0; }
 
 .hero h1 {
   max-width: 670px;
+  margin: 0 auto;
   color: var(--carbon);
   font: 700 clamp(68px, 8.7vw, 130px)/.9 var(--display);
   letter-spacing: -.03em;
@@ -245,6 +250,8 @@ h1, h2, h3, p { margin: 0; }
 .hero-copy > p {
   max-width: 500px;
   margin-top: 24px;
+  margin-right: auto;
+  margin-left: auto;
   color: var(--slate);
   font: 400 16px/1.25 var(--sans);
   letter-spacing: -.01em;
@@ -253,6 +260,7 @@ h1, h2, h3, p { margin: 0; }
 .hero-actions {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
   margin-top: 30px;
 }
@@ -853,7 +861,7 @@ tr.selected td, tbody tr:hover td { color: var(--carbon); background: var(--mint
   .hero-copy { min-height: 390px; padding: 38px 18px 42px; }
   .hero h1 { font-size: clamp(58px, 16vw, 82px); }
   .hero-copy > p { font-size: 14px; }
-  .hero-actions { align-items: flex-start; flex-direction: column; }
+  .hero-actions { align-items: center; flex-direction: column; }
   .primary-action, .quiet-action { width: 100%; }
   .metric-grid { grid-template-columns: 1fr; }
   .metric { min-height: 140px; }
