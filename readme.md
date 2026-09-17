@@ -6,9 +6,9 @@ view for the supplied 243-row `Shipment_Data` workbook.
 ## Analytical contract
 
 - The workbook is the complete source: 243 nonblank, unique `Shipment_ID` values and all required columns must validate before calculation.
-- Records stay in three named universes: 51 Direct reference shipments, 138 post-blockade delivered shipments and 54 Held-open shipments.
+- Records stay in three named universes: 51 Direct reference shipments, 138 post-blockade delivered shipments and 54 Held shipments.
 - Python is the analytical source of truth. React only formats, filters and presents the generated schema.
-- There is no forward forecast, route-capacity model, clearance model, recovery assumption or unapproved freight/insurance/service input.
+- Execution values are owner-entered; the engine does not derive a forward forecast, route-capacity model, clearance model, recovery assumption or unapproved freight/insurance/service input.
 - Direct is a historical product-matched benchmark. Route comparisons are observational pilot evidence, never causal, optimal, capacity-feasible or rollout-approved.
 - Held shipments are a triage ledger. They are excluded from delivered DIFOT and have no release schedule.
 - Total cost already includes freight, fuel, insurance and penalty; those components are disclosed but never added twice.
@@ -41,7 +41,7 @@ calculations do not depend on it.
 - `FACT`: directly observed in the accepted workbook.
 - `DERIVED`: calculated from accepted workbook fields using documented formulas.
 - `PROPOSAL`: a management posture, owner or release condition.
-- `MISSING_INPUT`: a prospective approval input that is not present in the workbook.
+- `INPUT_REQUIRED`: an owner-approved value required for prospective execution.
 
 Before execution, owners must approve the named quote, route-week capacity,
 product/cargo feasibility, insurance terms, service requirement, customer

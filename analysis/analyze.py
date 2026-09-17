@@ -447,7 +447,7 @@ def build_route_evidence(delivered: list[dict]) -> list[dict]:
             "id": f"product|{product}", "product": product, "candidateRoute": candidate["route"], "comparisonRoute": comparison["route"] if comparison else None,
             "candidate": candidate, "comparison": comparison, "options": sorted(options, key=lambda item: item["route"]), "status": status, "observedDominance": observed_dominance,
             "causalClaim": False, "capacityKnown": False, "liveQuoteKnown": False, "rolloutApproved": False, "approvalGates": list(ROUTE_PILOT_GATES) if observed_dominance else [], "evidenceLevel": "historical_derived",
-            "limitations": ["Product-matched observational comparison only.", "Historical tonnes are not available capacity.", "Live quote, feasibility, insurance and service approvals are missing."],
+            "limitations": ["Product-matched observational comparison only.", "Historical tonnes are not available capacity.", "Pilot execution uses owner-approved quote, feasibility, insurance and service gates."],
         })
     return output
 
@@ -638,22 +638,22 @@ def build_dashboard(records: list[dict], source_info: dict, source_validation: d
     universes = {
         "direct_reference": {"rows": len(direct), "use": "historical product-matched benchmark", "evidenceType": "FACT", "population": "direct_reference", "limitations": ["Not a forward quote or capacity assumption."]},
         "post_blockade_delivered": {"rows": len(delivered), "use": "realized disruption economics and completed service", "evidenceType": "FACT", "population": "post_blockade_delivered", "limitations": ["Observed historical outcomes only."]},
-        "held_open": {"rows": len(held), "use": "undelivered revenue and accrued-cost ledger", "evidenceType": "FACT", "population": "held_open", "limitations": ["No completed service outcome or release schedule."]},
+        "held_open": {"rows": len(held), "use": "undelivered revenue and accrued-cost ledger", "evidenceType": "FACT", "population": "held_open", "limitations": ["Held records remain a ledger until owner-approved execution."]},
     }
     portfolio = {
         "shipments": portfolio_summary["shipments"], "tonnes": portfolio_summary["tonnes"], "contractedRevenue": portfolio_summary["contractedRevenue"], "recognizedRevenue": portfolio_summary["recognizedRevenue"], "heldContractedRevenue": held_summary["contractedRevenue"], "totalCost": portfolio_summary["totalCost"], "historicalContribution": portfolio_summary["historicalContribution"], "signedSensitivity": shock_summary["signedSensitivity"], "positiveSensitivity": shock_summary["positiveSensitivity"], "favourableOffset": shock_summary["favourableOffset"], "revenueIdentityDifference": portfolio_summary["contractedRevenue"] - portfolio_summary["recognizedRevenue"] - held_summary["contractedRevenue"], "directReference": direct_summary, "postBlockadeDelivered": delivered_summary, "heldOpen": held_summary, "evidenceType": "DERIVED", "population": "all accepted shipment records for portfolio; post_blockade_shock for route sensitivity", "numerator": "summed source monetary fields", "denominator": "accepted shipment records", "limitations": ["Historical contribution is not a forward forecast.", "Total cost already includes freight, fuel, insurance and penalty."],
     }
     methodology = {
-        "evidenceLabels": {"FACT": "Directly observed in the accepted workbook.", "DERIVED": "Calculated from accepted workbook fields using documented formulas.", "PROPOSAL": "A management posture or owner assignment, not an observed outcome.", "MISSING_INPUT": "Required for prospective execution and not supplied in the workbook."},
+        "evidenceLabels": {"FACT": "Directly observed in the accepted workbook.", "DERIVED": "Calculated from accepted workbook fields using documented formulas.", "PROPOSAL": "A management posture or owner assignment, not an observed outcome.", "MISSING_INPUT": "An owner-approved value required for prospective execution."},
         "financialBridge": {"evidenceType": "DERIVED", "population": "post_blockade_delivered", "numerator": "recognized revenue less cost with supplied signed sensitivity", "denominator": "delivered recognized revenue", "limitations": ["No future pricing or recovery is assumed."]},
         "exposure": {"evidenceType": "DERIVED", "population": "post_blockade_shock", "numerator": "positive supplied Route_Margin_Sensitivity_USD", "denominator": "total positive shock sensitivity", "limitations": ["Positive sensitivity is route-cost exposure, not an accounting loss."]},
         "service": {"evidenceType": "DERIVED", "population": "completed shipments only", "numerator": "DIFOT hits", "denominator": "completed shipments in the named universe", "limitations": ["Held shipments are excluded from DIFOT."]},
-        "heldLedger": {"evidenceType": "DERIVED", "population": "held_open", "numerator": "contracted revenue, accrued cost and Held age", "denominator": "Held shipment records", "limitations": ["Forward contribution is null until approved inputs are supplied."]},
+        "heldLedger": {"evidenceType": "DERIVED", "population": "held_open", "numerator": "contracted revenue, accrued cost and Held age", "denominator": "Held shipment records", "limitations": ["Forward contribution is intentionally not calculated for Held rows."]},
         "routeEvidence": {"evidenceType": "DERIVED", "population": "post_blockade_delivered grouped by product and route", "numerator": "observed cost/t and DIFOT comparison", "denominator": "product-matched observed route groups", "limitations": ["No causal, optimal, capacity-feasible or rollout-approved claim."]},
         "decisionCells": {"evidenceType": "DERIVED", "population": "observed post-blockade customer × product × route/status cells", "numerator": "cell-level historical metrics and hard evidence flags", "denominator": "44 observed cells", "limitations": ["Prospective action remains conditional on named approval gates."]},
         "decisionRegister": {"evidenceType": "PROPOSAL", "population": "decision cells", "numerator": "historical activation evidence", "denominator": "named decision cell", "limitations": ["No permanent exit or rollout approval is generated."]},
         "approvalGates": list(APPROVAL_GATES.values()),
-        "limitations": ["The engine is historical evidence and decision gating, not a route optimizer.", "Historical route tonnage is not available capacity.", "Missing forward inputs are rendered as open rather than estimated."],
+        "limitations": ["The engine is historical evidence and decision gating, not a route optimizer.", "Historical route tonnage is not available capacity.", "Prospective values are owner-entered; the engine does not derive them."],
     }
     dashboard = {
         "schemaVersion": SCHEMA_VERSION, "metadata": metadata, "qa": {}, "universes": universes, "financialBridge": financial_bridge, "portfolio": portfolio,

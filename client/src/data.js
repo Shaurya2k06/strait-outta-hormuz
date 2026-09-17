@@ -20,12 +20,12 @@ const requiredKeys = [
 ]
 
 if (dashboardData.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
-  throw new Error(`Unsupported dashboard schema: ${dashboardData.schemaVersion ?? 'missing'}`)
+  throw new Error(`Unsupported dashboard schema: ${dashboardData.schemaVersion ?? 'unknown'}`)
 }
 
-const missingKeys = requiredKeys.filter((key) => !(key in dashboardData))
-if (missingKeys.length) {
-  throw new Error(`Incomplete analytical output: missing ${missingKeys.join(', ')}`)
+const absentKeys = requiredKeys.filter((key) => !(key in dashboardData))
+if (absentKeys.length) {
+  throw new Error(`Incomplete analytical output: requires ${absentKeys.join(', ')}`)
 }
 
 export { SUPPORTED_SCHEMA_VERSION }

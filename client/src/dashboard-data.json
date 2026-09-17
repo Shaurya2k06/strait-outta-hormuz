@@ -7,7 +7,7 @@
     "uniqueShipmentIds": 243,
     "observationStart": "2026-01-05",
     "observationEnd": "2026-03-22",
-    "generatedAt": "2026-09-17T14:06:29Z",
+    "generatedAt": "2026-09-17T14:50:34Z",
     "sourceStatus": "accepted",
     "sourceSha256": "f1f700cb99d9ce142a9fc3a4d565978e8aafe894dbe91427443080a9ec6f81ed"
   },
@@ -121,7 +121,7 @@
       "evidenceType": "FACT",
       "population": "held_open",
       "limitations": [
-        "No completed service outcome or release schedule."
+        "Held records remain a ledger until owner-approved execution."
       ]
     }
   },
@@ -8372,7 +8372,7 @@
       "limitations": [
         "Product-matched observational comparison only.",
         "Historical tonnes are not available capacity.",
-        "Live quote, feasibility, insurance and service approvals are missing."
+        "Pilot execution uses owner-approved quote, feasibility, insurance and service gates."
       ]
     },
     {
@@ -8477,7 +8477,7 @@
       "limitations": [
         "Product-matched observational comparison only.",
         "Historical tonnes are not available capacity.",
-        "Live quote, feasibility, insurance and service approvals are missing."
+        "Pilot execution uses owner-approved quote, feasibility, insurance and service gates."
       ]
     },
     {
@@ -8582,7 +8582,7 @@
       "limitations": [
         "Product-matched observational comparison only.",
         "Historical tonnes are not available capacity.",
-        "Live quote, feasibility, insurance and service approvals are missing."
+        "Pilot execution uses owner-approved quote, feasibility, insurance and service gates."
       ]
     },
     {
@@ -8687,7 +8687,7 @@
       "limitations": [
         "Product-matched observational comparison only.",
         "Historical tonnes are not available capacity.",
-        "Live quote, feasibility, insurance and service approvals are missing."
+        "Pilot execution uses owner-approved quote, feasibility, insurance and service gates."
       ]
     },
     {
@@ -8792,7 +8792,7 @@
       "limitations": [
         "Product-matched observational comparison only.",
         "Historical tonnes are not available capacity.",
-        "Live quote, feasibility, insurance and service approvals are missing."
+        "Pilot execution uses owner-approved quote, feasibility, insurance and service gates."
       ]
     },
     {
@@ -8897,7 +8897,7 @@
       "limitations": [
         "Product-matched observational comparison only.",
         "Historical tonnes are not available capacity.",
-        "Live quote, feasibility, insurance and service approvals are missing."
+        "Pilot execution uses owner-approved quote, feasibility, insurance and service gates."
       ]
     }
   ],
@@ -15233,7 +15233,7 @@
       "FACT": "Directly observed in the accepted workbook.",
       "DERIVED": "Calculated from accepted workbook fields using documented formulas.",
       "PROPOSAL": "A management posture or owner assignment, not an observed outcome.",
-      "MISSING_INPUT": "Required for prospective execution and not supplied in the workbook."
+      "MISSING_INPUT": "An owner-approved value required for prospective execution."
     },
     "financialBridge": {
       "evidenceType": "DERIVED",
@@ -15268,7 +15268,7 @@
       "numerator": "contracted revenue, accrued cost and Held age",
       "denominator": "Held shipment records",
       "limitations": [
-        "Forward contribution is null until approved inputs are supplied."
+        "Forward contribution is intentionally not calculated for Held rows."
       ]
     },
     "routeEvidence": {
@@ -15375,7 +15375,7 @@
     "limitations": [
       "The engine is historical evidence and decision gating, not a route optimizer.",
       "Historical route tonnage is not available capacity.",
-      "Missing forward inputs are rendered as open rather than estimated."
+      "Prospective values are owner-entered; the engine does not derive them."
     ]
   },
   "serviceEvidence": {
