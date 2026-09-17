@@ -1,4 +1,4 @@
-# Strait Outta Hormuz.
+# Strait Outta Hormuz
 
 This repository contains a dataset-only analytical engine and React evidence
 view for the supplied 243-row `Shipment_Data` workbook.
