@@ -13,7 +13,6 @@
   --sans: "SuisseIntl", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "SuisseIntlMono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --radius-card: 32px;
-  --radius-large: 64px;
   --radius-pill: 48px;
   --radius-button: 8px;
 }
@@ -231,10 +230,9 @@ h1, h2, h3, p { margin: 0; }
 /* Editorial split hero. The existing analytical proof remains the real visual. */
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(390px, .96fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
   max-width: 1200px;
-  min-height: 560px;
+  min-height: 470px;
   margin: 16px auto 0;
 }
 
@@ -243,6 +241,8 @@ h1, h2, h3, p { margin: 0; }
   flex-direction: column;
   justify-content: flex-end;
   min-width: 0;
+  max-width: 900px;
+  min-height: 470px;
   padding: 56px clamp(24px, 5vw, 72px) 64px;
 }
 
@@ -317,64 +317,6 @@ h1, h2, h3, p { margin: 0; }
 .modal-close:focus-visible, select:focus-visible {
   outline: 3px solid var(--yellow);
   outline-offset: 3px;
-}
-
-.hero-proof {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  min-height: 560px;
-  overflow: hidden;
-  padding: 32px;
-  border-radius: var(--radius-large) var(--radius-large) var(--radius-card) var(--radius-card);
-  color: var(--carbon);
-  background: var(--paper);
-}
-
-.hero-proof::after {
-  position: absolute;
-  top: 28px;
-  left: 28px;
-  width: 18px;
-  height: 18px;
-  border-radius: 2px;
-  background: var(--yellow);
-  content: "";
-}
-
-.proof-line { display: none; }
-
-.proof-step {
-  position: relative;
-  display: grid;
-  grid-template-columns: 32px 1fr;
-  gap: 5px 14px;
-  max-width: 480px;
-  padding: 17px 0;
-  border-top: 1px solid var(--ash);
-}
-
-.proof-step span {
-  grid-row: span 2;
-  width: max-content;
-  padding: 4px 6px;
-  border-radius: 64px;
-  color: var(--carbon);
-  background: var(--mint);
-  font: 400 12px/1.2 var(--mono);
-}
-
-.proof-step b {
-  color: var(--carbon);
-  font: 500 20px/1.08 var(--sans);
-  letter-spacing: -.02em;
-  text-transform: uppercase;
-}
-
-.proof-step small {
-  color: var(--slate);
-  font: 400 12px/1.45 var(--mono);
 }
 
 .metric-grid {
@@ -901,15 +843,12 @@ tr.selected td, tbody tr:hover td { color: var(--carbon); background: var(--mint
 @media (max-width: 1200px) {
   .sidebar, .topbar, .accepted-banner, .hero, .metric-grid, .section, .app-footer { margin-left: 24px; margin-right: 24px; }
   .sidebar { width: auto; }
-  .hero { grid-template-columns: 1fr 1fr; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 980px) {
   .sidebar { grid-template-columns: auto 1fr; height: auto; min-height: 104px; padding: 20px 24px; }
   .sidebar nav { justify-self: end; max-width: 100%; overflow-x: auto; }
-  .hero { grid-template-columns: 1fr; }
-  .hero-proof { min-height: 500px; }
   .two-column, .exposure-columns, .methodology-grid { grid-template-columns: 1fr; }
 }
 
@@ -919,7 +858,6 @@ tr.selected td, tbody tr:hover td { color: var(--carbon); background: var(--mint
   .accepted-banner { align-items: flex-start; border-radius: 24px; flex-direction: column; }
   .banner-note { white-space: normal; }
   .hero-copy { min-height: 430px; padding: 48px 24px 54px; }
-  .hero-proof { min-height: 500px; padding: 28px 24px; border-radius: 48px 48px 24px 24px; }
   .section { padding-top: 64px; }
   .section-heading h2 { font-size: clamp(46px, 10vw, 72px); }
   .panel-heading { flex-direction: column; }
@@ -945,7 +883,6 @@ tr.selected td, tbody tr:hover td { color: var(--carbon); background: var(--mint
   .hero-copy > p { font-size: 14px; }
   .hero-actions { align-items: flex-start; flex-direction: column; }
   .primary-action, .quiet-action { width: 100%; }
-  .hero-proof { min-height: 500px; padding: 24px 18px; }
   .metric-grid { grid-template-columns: 1fr; }
   .metric { min-height: 140px; }
   .section { padding-top: 56px; }
