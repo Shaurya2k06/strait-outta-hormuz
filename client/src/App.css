@@ -75,7 +75,7 @@ h1, h2, h3, p { margin: 0; }
 }
 
 .sidebar nav:hover, .sidebar nav:focus-within, .sidebar nav.expanded {
-  width: min(920px, calc(100vw - 48px));
+  width: min(1040px, calc(100vw - 48px));
 }
 
 .nav-toggle {
@@ -149,7 +149,7 @@ h1, h2, h3, p { margin: 0; }
 }
 
 .sidebar nav:hover .nav-links, .sidebar nav:focus-within .nav-links, .sidebar nav.expanded .nav-links {
-  max-width: 780px;
+  max-width: 900px;
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0) scaleX(1);

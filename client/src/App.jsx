@@ -49,6 +49,7 @@ const navigationItems = [
   { id: 'command', label: 'Command' },
   { id: 'bridge', label: 'Financial bridge' },
   { id: 'exposure', label: 'Exposure' },
+  { id: 'route-evidence', label: 'Route evidence' },
   { id: 'held', label: 'Held ledger' },
   { id: 'decisions', label: 'Decision cells' },
   { id: 'register', label: 'Register' },
@@ -365,13 +366,30 @@ function App() {
 
   useEffect(() => {
     const sections = navigationItems.map((item) => document.getElementById(item.id)).filter(Boolean)
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)
-      if (visible[0]) setActiveSection(visible[0].target.id)
-    }, { rootMargin: '-18% 0px -65% 0px', threshold: [0, .15, .4, .7] })
+    let frameId = 0
+    const updateActiveSection = () => {
+      frameId = 0
+      const activationLine = window.innerHeight * .35
+      let currentSection = sections[0]?.id ?? 'command'
 
-    sections.forEach((section) => observer.observe(section))
-    return () => observer.disconnect()
+      sections.forEach((section) => {
+        if (section.getBoundingClientRect().top <= activationLine) currentSection = section.id
+      })
+
+      setActiveSection((active) => active === currentSection ? active : currentSection)
+    }
+    const scheduleUpdate = () => {
+      if (!frameId) frameId = window.requestAnimationFrame(updateActiveSection)
+    }
+
+    updateActiveSection()
+    window.addEventListener('scroll', scheduleUpdate, { passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+    return () => {
+      window.removeEventListener('scroll', scheduleUpdate)
+      window.removeEventListener('resize', scheduleUpdate)
+      if (frameId) window.cancelAnimationFrame(frameId)
+    }
   }, [])
 
   return (
@@ -389,7 +407,7 @@ function App() {
         <section className="metric-grid" aria-label="Executive evidence"><Metric label="Accepted source" value={formatNumber(metadata.sourceRows)} detail={`${metadata.uniqueShipmentIds} unique Shipment_IDs · ${dateLabel(metadata.observationStart)} to ${dateLabel(metadata.observationEnd)}`} tone="blue" /><Metric label="Benchmark contribution" value={`+${formatMoney(financialBridge.benchmarkContribution)}`} detail="Direct-equivalent economics · delivered population" tone="positive" /><Metric label="Observed delivered contribution" value={formatMoney(financialBridge.observedDeliveredContribution)} detail={`${portfolio.postBlockadeDelivered.shipments} completed post-blockade shipments`} tone="negative" /><Metric label="Post-blockade DIFOT" value={formatPercent(deliveredService.difot)} detail={`${deliveredService.difotHits}/${deliveredService.difotDenominator} hits · 90% Jeffreys interval ${formatPercent(deliveredService.serviceInterval.lower)}-${formatPercent(deliveredService.serviceInterval.upper)}`} tone="amber" /></section>
         <section className="section" id="bridge"><SectionHeading index="01 / financial bridge" title="Economics by evidence universe." /><div className="two-column"><BridgePanel /><UniversePanel /></div></section>
         <section className="section" id="exposure"><SectionHeading index="02 / concentration" title="Concentration before composite ranking." copy={selectedExposure ? `Focus: ${selectedExposure.name}.` : undefined} /><div className="two-column exposure-columns"><ExposurePanel selectedCustomer={selectedCustomer} setSelectedCustomer={setSelectedCustomer} /><ProductPanel /></div></section>
-        <section className="section"><SectionHeading index="03 / route evidence" title="Product-matched routes and observed service." /><ServiceTablePanel /><div className="route-evidence-spacer" /><RouteEvidencePanel /></section>
+        <section className="section" id="route-evidence"><SectionHeading index="03 / route evidence" title="Product-matched routes and observed service." /><ServiceTablePanel /><div className="route-evidence-spacer" /><RouteEvidencePanel /></section>
         <section className="section" id="held"><SectionHeading index="04 / Held ledger" title="Revenue, cost and age by shipment." /><HeldLedgerPanel /></section>
         <section className="section" id="decisions"><SectionHeading index="05 / decision cells" title="One posture and gate per observed cell." /><DecisionExplorer /></section>
         <section className="section" id="register"><SectionHeading index="06 / board register" title="Board actions with owner gates." /><DecisionRegisterPanel /></section>
